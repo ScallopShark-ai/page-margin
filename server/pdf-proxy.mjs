@@ -4,7 +4,7 @@ import { isIP } from 'node:net';
 const MAX_PDF_BYTES = 80 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
 const USER_AGENT =
-  'PageMargin/1.1 (local paper reader; PDF import) Node.js';
+  'Haila/1.1 (local paper reader; PDF import) Node.js';
 
 function httpError(message, status = 400) {
   const error = new Error(message);

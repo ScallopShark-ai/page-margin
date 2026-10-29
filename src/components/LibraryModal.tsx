@@ -754,7 +754,7 @@ export function LibraryModal({
           </div>
         </main>
         <footer className="library-footer">
-          <span>页边 · 本地文库</span>
+          <span>海拉 · 本地文库</span>
           <span>论文、阅读进度和对话均保存在当前浏览器</span>
         </footer>
       </div>

@@ -138,8 +138,8 @@ function MessageItem({
   return (
     <article className="message message--assistant">
       <div className="assistant-identity">
-        <span className="assistant-avatar">页</span>
-        <span className="assistant-name">页边</span>
+        <span className="assistant-avatar">海</span>
+        <span className="assistant-name">海拉</span>
         {isStreamingThis && (
           <span className="generating-label">
             <i />

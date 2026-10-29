@@ -9,7 +9,7 @@ const metaCache = new Map();
 const inFlightPdf = new Map();
 
 const USER_AGENT =
-  'PageMargin/1.1 (local paper reader; https://arxiv.org/help/api) Node.js';
+  'Haila/1.1 (local paper reader; https://arxiv.org/help/api) Node.js';
 
 const MODERN_ID = /^\d{4}\.\d{4,5}(?:v\d+)?$/i;
 const LEGACY_ID = /^[a-z][a-z\-]*(?:\.[a-z]{2})?\/\d{7}(?:v\d+)?$/i;

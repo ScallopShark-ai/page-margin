@@ -265,7 +265,7 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
           <div>
             <span className="card-kicker">MODEL CONNECTION</span>
             <h2 id="settings-title">连接 AI 模型</h2>
-            <p>页边通过你选择的模型来解读论文。</p>
+            <p>海拉通过你选择的模型来解读论文。</p>
           </div>
           <button type="button" className="icon-button modal-close" onClick={onClose} aria-label="关闭">
             <X size={18} />

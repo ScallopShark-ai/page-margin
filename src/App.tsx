@@ -172,7 +172,7 @@ export default function App() {
   }, [activeThreadId]);
 
   useEffect(() => {
-    document.title = paper ? `${paper.meta.title.slice(0, 64)} · 页边` : '页边 · AI 论文精读';
+    document.title = paper ? `${paper.meta.title.slice(0, 64)} · 海拉` : '海拉 · AI 论文精读';
   }, [paper]);
 
   useEffect(() => {

@@ -32,8 +32,8 @@ export function Logo({ compact = false }: { compact?: boolean }) {
     <span className={`logo ${compact ? 'logo--compact' : ''}`}>
       <LogoMark size={compact ? 25 : 29} />
       <span className="logo-type">
-        <span className="logo-cn">页边</span>
-        {!compact && <span className="logo-en">PageMargin</span>}
+        <span className="logo-cn">海拉</span>
+        {!compact && <span className="logo-en">Haila</span>}
       </span>
     </span>
   );

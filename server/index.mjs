@@ -446,7 +446,7 @@ if (existsSync(distDir)) {
       .status(200)
       .type('html')
       .send(
-        '<pre style="font:15px/1.6 ui-monospace;padding:40px">页边 API 已启动。\n开发模式请访问 http://127.0.0.1:5173，或先运行 npm run build。</pre>',
+        '<pre style="font:15px/1.6 ui-monospace;padding:40px">海拉 API 已启动。\n开发模式请访问 http://127.0.0.1:5173，或先运行 npm run build。</pre>',
       );
   });
 }
@@ -471,7 +471,7 @@ app.use((error, _req, res, _next) => {
 });
 
 app.listen(port, '127.0.0.1', () => {
-  console.log(`\n  页边 · PageMargin`);
+  console.log(`\n  海拉 · Haila`);
   console.log(`  → http://127.0.0.1:${port}`);
   console.log(
     `  AI: ${serverConfig.provider} / ${serverConfig.model} ${

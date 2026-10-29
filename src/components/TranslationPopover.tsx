@@ -188,7 +188,7 @@ export function TranslationPopover({
           </span>
           <div>
             <strong>配置模型后自动翻译</strong>
-            <p>划词翻译会使用你为页边配置的模型。</p>
+            <p>划词翻译会使用你为海拉配置的模型。</p>
           </div>
           <button type="button" onClick={onOpenSettings}>
             去配置

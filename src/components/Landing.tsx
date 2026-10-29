@@ -101,7 +101,7 @@ export function Landing({
             <Sparkles size={13} strokeWidth={1.8} />
           </button>
           <a className="nav-link" href="#how">
-            关于页边
+            关于海拉
           </a>
         </div>
       </header>
@@ -343,7 +343,7 @@ export function Landing({
           <strong>追问</strong>
           <span>有页码依据的逐段解读</span>
         </div>
-        <p>页边不是摘要生成器，而是一张可以随时提问的书桌。</p>
+        <p>海拉不是摘要生成器，而是一张可以随时提问的书桌。</p>
       </footer>
     </div>
   );
