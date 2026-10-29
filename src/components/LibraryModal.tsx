@@ -158,7 +158,7 @@ export function LibraryModal({
       if (!query) return true;
       return `${paper.title} ${paper.authors.join(' ')} ${paper.abstract} ${
         paper.arxivId ?? ''
-      } ${paper.fileName ?? ''} ${paper.category}`
+      } ${paper.sourceUrl ?? ''} ${paper.fileName ?? ''} ${paper.category}`
         .toLowerCase()
         .includes(query);
     });
@@ -476,7 +476,7 @@ export function LibraryModal({
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="搜索标题、作者或 arXiv 编号"
+                placeholder="搜索标题、作者或链接"
                 aria-label="搜索文库"
               />
               {search && (

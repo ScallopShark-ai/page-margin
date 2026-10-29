@@ -1461,8 +1461,8 @@ export default function App() {
               <div className="drag-file-icon">
                 <FileText size={30} />
               </div>
-              <strong>松开以打开这份 PDF</strong>
-              <span>文件只在本地浏览器中解析</span>
+              <strong>松开以导入 PDF</strong>
+              <span>单个直接打开，多个进入批量导入</span>
             </div>
           </div>
         )}
@@ -1639,8 +1639,8 @@ export default function App() {
             <div className="drag-file-icon">
               <FileText size={30} />
             </div>
-            <strong>松开以打开新的 PDF</strong>
-            <span>当前论文会被替换，对话会保留在文库中</span>
+            <strong>松开以导入新的 PDF</strong>
+            <span>单个直接打开，多个进入批量导入</span>
           </div>
         </div>
       )}
