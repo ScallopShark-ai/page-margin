@@ -18,7 +18,7 @@ export interface ServerConfig {
 }
 
 export interface PaperMeta {
-  source: 'arxiv' | 'local';
+  source: 'arxiv' | 'local' | 'web';
   title: string;
   authors: string[];
   abstract: string;
@@ -28,6 +28,7 @@ export interface PaperMeta {
   arxivId?: string;
   absUrl?: string;
   pdfUrl?: string;
+  sourceUrl?: string;
   fileName?: string;
   pages: number;
   chars: number;
@@ -93,8 +94,9 @@ export interface LoadProgress {
 
 export interface StoredPaper {
   id: string;
-  source: 'arxiv' | 'local';
+  source: 'arxiv' | 'local' | 'web';
   arxivId?: string;
+  sourceUrl?: string;
   title: string;
   authors: string[];
   abstract: string;

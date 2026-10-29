@@ -270,6 +270,7 @@ export async function savePaper(
     id: input.id,
     source: input.meta.source,
     arxivId: input.meta.arxivId,
+    sourceUrl: input.meta.sourceUrl,
     title: input.meta.title,
     authors: input.meta.authors,
     abstract: input.meta.abstract,

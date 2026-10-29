@@ -37,10 +37,17 @@ export async function resolveArxiv(input: string, signal?: AbortSignal): Promise
   return (await response.json()) as ArcherResult;
 }
 
-export async function fetchPdfBlob(url: string): Promise<Blob> {
-  const response = await fetch(url, { headers: { Accept: 'application/pdf' } });
-  if (!response.ok) throw new Error(`PDF 下载失败（HTTP ${response.status}）`);
+export async function fetchPdfBlob(url: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(url, {
+    headers: { Accept: 'application/pdf' },
+    signal,
+  });
+  if (!response.ok) throw await errorFromResponse(response);
   return response.blob();
+}
+
+export async function fetchRemotePdf(url: string, signal?: AbortSignal): Promise<Blob> {
+  return fetchPdfBlob(`/api/pdf/fetch?url=${encodeURIComponent(url)}`, signal);
 }
 
 export async function fetchServerConfig(): Promise<ServerConfig> {

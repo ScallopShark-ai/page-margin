@@ -362,7 +362,9 @@ export function ChatPanel({
                 <span>
                   {paper.meta.source === 'arxiv'
                     ? paper.meta.arxivId
-                    : paper.meta.fileName || 'LOCAL PDF'}
+                    : paper.meta.source === 'web'
+                      ? paper.meta.category || 'WEB PDF'
+                      : paper.meta.fileName || 'LOCAL PDF'}
                 </span>
               </div>
               <h1>{paper.meta.title}</h1>

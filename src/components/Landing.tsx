@@ -23,8 +23,9 @@ interface LandingProps {
   papers: StoredPaper[];
   modelReady: boolean;
   modelLabel: string;
-  onArxiv: (input: string) => void;
+  onOpenLink: (input: string) => void;
   onFile: (file: File) => void;
+  onOpenBatchImport: () => void;
   onOpenLibrary: () => void;
   onOpenPaper: (paper: StoredPaper) => void;
   onOpenSettings: () => void;
@@ -43,8 +44,9 @@ export function Landing({
   papers,
   modelReady,
   modelLabel,
-  onArxiv,
+  onOpenLink,
   onFile,
+  onOpenBatchImport,
   onOpenLibrary,
   onOpenPaper,
   onOpenSettings,
@@ -59,10 +61,10 @@ export function Landing({
     event.preventDefault();
     setLocalError('');
     if (!input.trim()) {
-      setLocalError('先粘贴一个 arXiv 链接或编号');
+      setLocalError('先粘贴一个 arXiv 或 PDF 链接');
       return;
     }
-    onArxiv(input.trim());
+    onOpenLink(input.trim());
   };
 
   const handleFiles = (files: FileList | null) => {
@@ -151,13 +153,13 @@ export function Landing({
             <div className="import-card-head">
               <span className="card-kicker">OPEN A PAPER</span>
               <h2>开始精读</h2>
-              <p>粘贴 arXiv 链接，或从电脑拖入一份 PDF。</p>
+              <p>粘贴论文链接，或从电脑拖入一份 PDF。</p>
             </div>
 
             <form className="arxiv-form" onSubmit={submit}>
               <label className="field-label" htmlFor="arxiv-input">
-                arXiv 链接 / 编号
-                <span>支持 abs / pdf 链接</span>
+                论文链接
+                <span>arXiv 编号 / 任意 PDF 直链</span>
               </label>
               <div className={`arxiv-input-row ${localError ? 'has-error' : ''}`}>
                 <Link2 size={18} strokeWidth={1.8} className="input-icon" />
@@ -165,7 +167,7 @@ export function Landing({
                   id="arxiv-input"
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
-                  placeholder="https://arxiv.org/abs/1706.03762"
+                  placeholder="https://arxiv.org/abs/1706.03762 或 PDF 直链"
                   disabled={Boolean(loading)}
                   spellCheck={false}
                   autoComplete="off"
@@ -174,7 +176,7 @@ export function Landing({
                   type="submit"
                   className="open-button"
                   disabled={Boolean(loading)}
-                  aria-label="打开 arXiv 论文"
+                  aria-label="打开论文"
                 >
                   {loading ? <Loader2 size={18} className="spin" /> : <ArrowRight size={18} />}
                 </button>
@@ -235,6 +237,20 @@ export function Landing({
               />
             </div>
 
+            <button
+              type="button"
+              className="batch-import-button"
+              onClick={onOpenBatchImport}
+              disabled={Boolean(loading)}
+            >
+              <Layers3 size={16} strokeWidth={1.8} />
+              <span>
+                <strong>批量导入</strong>
+                <small>多个链接或本地 PDF，一次加入文库</small>
+              </span>
+              <ArrowUpRight size={15} strokeWidth={1.7} />
+            </button>
+
             {localError && <p className="inline-error">{localError}</p>}
             {error && (
               <div className="import-error" role="alert">
@@ -285,7 +301,9 @@ export function Landing({
                     <span className="recent-meta">
                       {paper.source === 'arxiv'
                         ? `${paper.year || 'arXiv'} · ${paper.arxivId}`
-                        : `本地 · ${paper.pageCount} 页`}
+                        : paper.source === 'web'
+                          ? `网页 PDF · ${paper.pageCount} 页`
+                          : `本地 · ${paper.pageCount} 页`}
                     </span>
                     <ArrowUpRight size={15} strokeWidth={1.7} />
                   </button>
@@ -295,7 +313,7 @@ export function Landing({
 
             <div className="import-footnote">
               <ShieldCheck size={14} strokeWidth={1.8} />
-              <span>文件不会上传保存；仅相关段落会随问题发送给你配置的模型。</span>
+              <span>本地文件只在本机解析；仅相关段落会随问题发送给模型。</span>
             </div>
           </div>
 
@@ -313,7 +331,7 @@ export function Landing({
         <div>
           <span className="footer-mark">01</span>
           <strong>导入</strong>
-          <span>arXiv 链接或本地 PDF</span>
+          <span>论文链接、本地 PDF 或批量导入</span>
         </div>
         <div>
           <span className="footer-mark">02</span>

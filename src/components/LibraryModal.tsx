@@ -15,6 +15,7 @@ import {
   Search,
   Star,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import type { Folder, StoredPaper } from '../types';
@@ -37,9 +38,10 @@ interface LibraryModalProps {
   onRenameFolder: (folder: Folder, name: string) => Promise<boolean>;
   onDeleteFolder: (folder: Folder) => Promise<boolean>;
   onMovePaper: (paper: StoredPaper, folderId: string | null) => Promise<boolean>;
+  onOpenBatchImport: () => void;
 }
 
-type Filter = 'all' | 'arxiv' | 'local' | 'favorite';
+type Filter = 'all' | 'arxiv' | 'local' | 'web' | 'favorite';
 type Sort = 'recent' | 'added' | 'title';
 type FolderSelection = 'all' | 'unfiled' | string;
 
@@ -47,6 +49,7 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: '全部' },
   { id: 'arxiv', label: 'arXiv' },
   { id: 'local', label: '本地 PDF' },
+  { id: 'web', label: '网页 PDF' },
   { id: 'favorite', label: '收藏' },
 ];
 
@@ -62,7 +65,9 @@ function PaperCover({ paper }: { paper: StoredPaper }) {
   }
   return (
     <div className="library-cover-fallback">
-      <span>{paper.source === 'arxiv' ? 'ARXIV' : 'LOCAL PDF'}</span>
+      <span>
+        {paper.source === 'arxiv' ? 'ARXIV' : paper.source === 'web' ? 'WEB PDF' : 'LOCAL PDF'}
+      </span>
       <strong>{paper.title}</strong>
       <i>{paper.year || paper.category || 'PAPER'}</i>
     </div>
@@ -85,6 +90,7 @@ export function LibraryModal({
   onRenameFolder,
   onDeleteFolder,
   onMovePaper,
+  onOpenBatchImport,
 }: LibraryModalProps) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -148,6 +154,7 @@ export function LibraryModal({
       if (filter === 'favorite' && !paper.favorite) return false;
       if (filter === 'arxiv' && paper.source !== 'arxiv') return false;
       if (filter === 'local' && paper.source !== 'local') return false;
+      if (filter === 'web' && paper.source !== 'web') return false;
       if (!query) return true;
       return `${paper.title} ${paper.authors.join(' ')} ${paper.abstract} ${
         paper.arxivId ?? ''
@@ -241,6 +248,15 @@ export function LibraryModal({
       <header className="library-topbar">
         <Logo compact />
         <span className="library-breadcrumb">我的文库</span>
+        <button
+          type="button"
+          className="library-import-button"
+          onClick={onOpenBatchImport}
+          title="批量导入链接或本地 PDF"
+        >
+          <Upload size={14} />
+          批量导入
+        </button>
         <button type="button" className="library-close" onClick={onClose}>
           <ArrowLeft size={14} />
           返回
@@ -511,7 +527,7 @@ export function LibraryModal({
                 <BookOpen size={28} strokeWidth={1.4} />
               </div>
               <h2>文库还是空的</h2>
-              <p>导入第一篇 arXiv 论文或拖入本地 PDF，它会自动出现在这里。</p>
+              <p>导入第一篇论文，或从链接、本地 PDF 批量加入文库。</p>
               <button type="button" className="library-empty-button" onClick={onClose}>
                 {currentPaperId ? '返回阅读' : '去导入论文'}
                 <ArrowUpRight size={14} />
@@ -566,7 +582,9 @@ export function LibraryModal({
                     paper.pageCount > 0
                       ? Math.min(100, Math.max(0, (paper.lastPage / paper.pageCount) * 100))
                       : 0;
-                  const unavailable = paper.source === 'local' && paper.pdfBytes === 0;
+                  const unavailable =
+                    (paper.source === 'local' || paper.source === 'web') &&
+                    paper.pdfBytes === 0;
                   return (
                     <article
                       key={paper.id}
@@ -630,7 +648,11 @@ export function LibraryModal({
                         </div>
                         <div className="library-cover-badges">
                           <span className={`source-badge source-${paper.source}`}>
-                            {paper.source === 'arxiv' ? 'ARXIV' : 'PDF'}
+                            {paper.source === 'arxiv'
+                              ? 'ARXIV'
+                              : paper.source === 'web'
+                                ? 'WEB'
+                                : 'PDF'}
                           </span>
                           {isCurrent && <span className="current-badge">正在阅读</span>}
                           {unavailable && <span className="missing-badge">缺少文件</span>}
@@ -655,11 +677,19 @@ export function LibraryModal({
                       <div className="library-card-body">
                         <span
                           className="library-source-line"
-                          title={paper.source === 'local' ? paper.fileName : undefined}
+                          title={
+                            paper.source === 'web'
+                              ? paper.sourceUrl || paper.fileName
+                              : paper.source === 'local'
+                                ? paper.fileName
+                                : undefined
+                          }
                         >
                           {paper.source === 'arxiv'
                             ? `${paper.year || 'arXiv'} · ${paper.category || paper.arxivId}`
-                            : `本地 PDF · ${paper.pageCount} 页`}
+                            : paper.source === 'web'
+                              ? `网页 PDF · ${paper.pageCount} 页`
+                              : `本地 PDF · ${paper.pageCount} 页`}
                         </span>
                         <h3>{paper.title}</h3>
                         <p className="library-authors">

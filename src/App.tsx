@@ -28,6 +28,7 @@ import type {
   StoredPaper,
 } from './types';
 import { Landing } from './components/Landing';
+import { BatchImportModal } from './components/BatchImportModal';
 import { PdfViewer } from './components/PdfViewer';
 import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
@@ -43,7 +44,7 @@ import {
   readPdfMetadata,
   renderThumbnail,
 } from './lib/pdf';
-import { fetchPdfBlob, resolveArxiv, streamPaperChat } from './lib/api';
+import { fetchPdfBlob, fetchRemotePdf, resolveArxiv, streamPaperChat } from './lib/api';
 import {
   hasSavedConfig,
   hasUsableModel,
@@ -69,6 +70,15 @@ import {
   threadTitleFromQuestion,
   updatePaper,
 } from './lib/library';
+import {
+  arxivPaperId,
+  fileNameFromUrl,
+  hostFromUrl,
+  isArxivReference,
+  isWebPdfUrl,
+  localPaperId,
+  webPaperId,
+} from './lib/paperId';
 
 type MobileTab = 'paper' | 'chat';
 
@@ -84,24 +94,6 @@ function makeId(): string {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function hashString(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
-
-function arxivPaperId(meta: PaperMeta): string {
-  const baseId = (meta.arxivId || '').replace(/v\d+$/i, '');
-  return `arxiv-${baseId || hashString(meta.title)}`;
-}
-
-function localPaperId(file: File): string {
-  return `local-${hashString(`${file.name}|${file.size}|${file.lastModified}`)}`;
 }
 
 function emptyThreadState(): RestoredThreads {
@@ -148,6 +140,8 @@ export default function App() {
   const [libraryLoading, setLibraryLoading] = useState(true);
   const [libraryError, setLibraryError] = useState('');
   const [libraryBusyId, setLibraryBusyId] = useState<string | null>(null);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchSeedFiles, setBatchSeedFiles] = useState<File[]>([]);
   const [threads, setThreads] = useState<ConversationThread[]>([]);
   const threadsRef = useRef<ConversationThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -280,7 +274,7 @@ export default function App() {
         await updatePaper(session.key, { lastPage: currentPageRef.current });
       }
       await refreshLibrary();
-      if (!result.blobSaved && session.meta.source === 'local') {
+      if (!result.blobSaved && session.meta.source !== 'arxiv') {
         setToast('浏览器存储空间不足：论文信息与对话已保存，但 PDF 原件未保存。');
       }
     } catch (error) {
@@ -554,6 +548,143 @@ export default function App() {
     }
   };
 
+  const openPdfUrl = async (input: string) => {
+    let normalizedUrl: string;
+    try {
+      const parsed = new URL(input.trim());
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error('unsupported protocol');
+      }
+      parsed.hash = '';
+      normalizedUrl = parsed.toString();
+    } catch {
+      const message = '请输入有效的 http 或 https PDF 链接';
+      if (paperRef.current) setToast(message);
+      else setLoadError(message);
+      return;
+    }
+
+    setLibraryOpen(false);
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
+    setLoadError('');
+    setToast('');
+    startLoading({
+      stage: '下载网页 PDF',
+      detail: hostFromUrl(normalizedUrl),
+      percent: 8,
+    });
+
+    let pdfHref: string | null = null;
+    try {
+      const blob = await fetchRemotePdf(normalizedUrl, controller.signal);
+      if (controller.signal.aborted) return;
+      pdfHref = URL.createObjectURL(blob);
+      startLoading({
+        stage: '打开 PDF',
+        detail: `${Math.max(1, Math.round(blob.size / 1024))} KB`,
+        percent: 26,
+      });
+      const doc = await loadPdfFromFile(blob);
+      if (controller.signal.aborted) {
+        URL.revokeObjectURL(pdfHref);
+        void doc.destroy();
+        return;
+      }
+
+      const pdfMeta = await readPdfMetadata(doc);
+      startLoading({
+        stage: '提取论文全文',
+        detail: `共 ${doc.numPages} 页，正在建立可检索文本…`,
+        percent: 36,
+      });
+      const extraction = await extractPageText(doc, (page, total) => {
+        if (controller.signal.aborted) return;
+        startLoading({
+          stage: '提取论文全文',
+          detail: `正在解析第 ${page} / ${total} 页`,
+          percent: 36 + (page / total) * 58,
+        });
+      });
+      if (controller.signal.aborted) {
+        URL.revokeObjectURL(pdfHref);
+        void doc.destroy();
+        return;
+      }
+
+      const objectUrl = pdfHref;
+      if (!objectUrl) throw new Error('PDF 地址创建失败');
+      const fileName = fileNameFromUrl(normalizedUrl);
+      const inferredTitle = inferTitleFromPageText(extraction.pages[0]?.text ?? '');
+      const fallbackTitle = fileName.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').trim();
+      const meta: PaperMeta = {
+        source: 'web',
+        title:
+          inferredTitle ||
+          (pdfMeta.title !== '未命名论文' ? pdfMeta.title : '') ||
+          fallbackTitle ||
+          hostFromUrl(normalizedUrl),
+        authors: pdfMeta.authors,
+        abstract: '',
+        published: '',
+        year: '',
+        category: hostFromUrl(normalizedUrl),
+        sourceUrl: normalizedUrl,
+        fileName,
+        pages: doc.numPages,
+        chars: extraction.chars,
+      };
+      const paperId = webPaperId(normalizedUrl);
+      const restored = await readRestoredThreads(paperId);
+      const session: PaperSession = {
+        key: paperId,
+        meta,
+        pages: extraction.pages,
+        doc,
+        pdfHref: objectUrl,
+        extractedChars: extraction.chars,
+      };
+      startLoading({ stage: '准备阅读器', detail: '正在铺开论文页面…', percent: 100 });
+      await new Promise((resolve) => window.setTimeout(resolve, 110));
+      if (controller.signal.aborted) {
+        URL.revokeObjectURL(objectUrl);
+        void doc.destroy();
+        return;
+      }
+      activatePaper(session, restored);
+      window.history.replaceState({}, '', window.location.pathname);
+      void persistSession(session, Promise.resolve(blob));
+    } catch (error) {
+      if (pdfHref) URL.revokeObjectURL(pdfHref);
+      if (controller.signal.aborted) return;
+      const message = friendlyPdfError(error);
+      if (paperRef.current) setToast(message);
+      else setLoadError(message);
+    } finally {
+      if (loadAbortRef.current === controller) {
+        loadAbortRef.current = null;
+        setLoading(null);
+      }
+    }
+  };
+
+  const handleOpenLink = (input: string) => {
+    const value = input.trim();
+    if (!value) return;
+    if (isArxivReference(value)) {
+      void openArxiv(value);
+      return;
+    }
+    if (isWebPdfUrl(value)) {
+      void openPdfUrl(value);
+      return;
+    }
+    const message = '请输入 arXiv 链接、arXiv 编号或 PDF 链接';
+    if (paperRef.current) setToast(message);
+    else setLoadError(message);
+  };
+
   const clearWorkspace = () => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -584,6 +715,11 @@ export default function App() {
   const goHome = () => {
     void saveCurrentThreadSnapshot();
     clearWorkspace();
+  };
+
+  const openBatchImport = (files: File[] = []) => {
+    setBatchSeedFiles(files);
+    setBatchOpen(true);
   };
 
   const handleOpenLibrary = () => {
@@ -628,6 +764,11 @@ export default function App() {
       } else if (record.source === 'arxiv' && record.arxivId) {
         pdfHref = `/api/arxiv/pdf?id=${encodeURIComponent(record.arxivId)}`;
         doc = await loadPdfFromUrl(pdfHref);
+      } else if (record.source === 'web' && record.sourceUrl) {
+        const blob = await fetchRemotePdf(record.sourceUrl);
+        doc = await loadPdfFromFile(blob);
+        blobHref = URL.createObjectURL(blob);
+        pdfHref = blobHref;
       } else {
         throw new Error('原始 PDF 未保存在浏览器中，请重新导入这份文件');
       }
@@ -649,6 +790,7 @@ export default function App() {
         year: record.year,
         category: record.category,
         arxivId: record.arxivId,
+        sourceUrl: record.sourceUrl,
         fileName: record.fileName,
         pages: doc.numPages,
         chars: record.chars || extractedChars,
@@ -796,13 +938,17 @@ export default function App() {
   };
 
   useEffect(() => {
+    const blockingModalOpen = () =>
+      Boolean(document.querySelector('.batch-backdrop, .modal-backdrop'));
     const onDragEnter = (event: DragEvent) => {
+      if (blockingModalOpen()) return;
       if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return;
       event.preventDefault();
       dragDepth.current += 1;
       setDragging(true);
     };
     const onDragOver = (event: DragEvent) => {
+      if (blockingModalOpen()) return;
       if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return;
       event.preventDefault();
     };
@@ -820,11 +966,16 @@ export default function App() {
       resetDragState();
     };
     const onDrop = (event: DragEvent) => {
+      if (blockingModalOpen()) return;
       if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return;
       event.preventDefault();
       resetDragState();
-      const file = event.dataTransfer?.files?.[0];
-      if (file) void openLocalFile(file);
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      if (files.length > 1) {
+        openBatchImport(files);
+      } else if (files[0]) {
+        void openLocalFile(files[0]);
+      }
     };
     const onDragEnd = () => resetDragState();
     const onWindowBlur = () => resetDragState();
@@ -1246,6 +1397,23 @@ export default function App() {
     />
   );
 
+  const batchModal = (
+    <BatchImportModal
+      open={batchOpen}
+      initialFiles={batchSeedFiles}
+      onClose={() => {
+        setBatchOpen(false);
+        setBatchSeedFiles([]);
+      }}
+      onFinished={() => void refreshLibrary(false)}
+      onOpenLibrary={() => {
+        setBatchOpen(false);
+        setBatchSeedFiles([]);
+        handleOpenLibrary();
+      }}
+    />
+  );
+
   const libraryModal = (
     <LibraryModal
       open={libraryOpen}
@@ -1263,6 +1431,7 @@ export default function App() {
       onRenameFolder={handleRenameFolder}
       onDeleteFolder={handleDeleteFolder}
       onMovePaper={handleMovePaper}
+      onOpenBatchImport={() => openBatchImport()}
     />
   );
 
@@ -1275,8 +1444,9 @@ export default function App() {
           papers={papers}
           modelReady={modelReady}
           modelLabel={modelStatusLabel}
-          onArxiv={(input) => void openArxiv(input)}
+          onOpenLink={handleOpenLink}
           onFile={(file) => void openLocalFile(file)}
+          onOpenBatchImport={() => openBatchImport()}
           onOpenLibrary={handleOpenLibrary}
           onOpenPaper={(record) => void handleOpenStoredPaper(record)}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -1284,6 +1454,7 @@ export default function App() {
         />
         {settingsModal}
         {libraryModal}
+        {batchModal}
         {dragging && (
           <div className="drag-overlay" aria-hidden="true">
             <div className="drag-overlay-inner">
@@ -1316,7 +1487,11 @@ export default function App() {
         </button>
         <div className="header-paper">
           <span className={`source-badge source-${paper.meta.source}`}>
-            {paper.meta.source === 'arxiv' ? 'ARXIV' : 'PDF'}
+            {paper.meta.source === 'arxiv'
+              ? 'ARXIV'
+              : paper.meta.source === 'web'
+                ? 'WEB'
+                : 'PDF'}
           </span>
           <span className="header-title" title={paper.meta.title}>
             {paper.meta.title}
@@ -1456,6 +1631,7 @@ export default function App() {
 
       {settingsModal}
       {libraryModal}
+      {batchModal}
 
       {dragging && (
         <div className="drag-overlay" aria-hidden="true">

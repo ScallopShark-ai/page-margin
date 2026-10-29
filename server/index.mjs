@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getArxivPdf, normalizeArxivInput, resolveArxiv } from './arxiv.mjs';
+import { fetchPdfFromUrl } from './pdf-proxy.mjs';
 import {
   buildPaperContext,
   buildSystemPrompt,
@@ -137,6 +138,35 @@ app.get('/api/arxiv/pdf', async (req, res, next) => {
       next(error);
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/pdf/fetch', async (req, res, next) => {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort();
+  });
+  try {
+    const url = String(req.query.url ?? '').trim();
+    if (!url) throw httpError('缺少 PDF 链接');
+    const result = await fetchPdfFromUrl(url, { signal: controller.signal });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', String(result.buffer.length));
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
+    );
+    res.send(result.buffer);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      if (!res.headersSent) res.status(499).end();
+      return;
+    }
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
     next(error);
   }
 });
