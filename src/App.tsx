@@ -1400,6 +1400,7 @@ export default function App() {
   const batchModal = (
     <BatchImportModal
       open={batchOpen}
+      folders={folders}
       initialFiles={batchSeedFiles}
       onClose={() => {
         setBatchOpen(false);

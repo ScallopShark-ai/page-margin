@@ -250,6 +250,7 @@ export interface SavePaperInput {
   pages: PageText[];
   pdfBlob?: Blob | null;
   thumbnail?: string;
+  folderId?: string | null;
 }
 
 export async function savePaper(
@@ -286,7 +287,10 @@ export async function savePaper(
     lastPage: existing?.lastPage ?? 1,
     favorite: existing?.favorite ?? false,
     conversationCount,
-    folderId: existing?.folderId ?? null,
+    folderId:
+      input.folderId !== undefined
+        ? input.folderId
+        : existing?.folderId ?? null,
     thumbnail: input.thumbnail ?? existing?.thumbnail,
     pdfBytes: pdfBlob?.size ?? 0,
   };

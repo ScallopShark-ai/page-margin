@@ -5,18 +5,22 @@ import {
   Check,
   CheckCircle2,
   FileText,
+  Folder,
   Layers3,
   Link2,
   Loader2,
   Upload,
   X,
 } from 'lucide-react';
+import type { Folder as FolderRecord } from '../types';
 import type { BatchImportItem } from '../lib/batchImport';
 import { importBatchItem, newBatchTaskId } from '../lib/batchImport';
+import { extractLinksFromText } from '../lib/linkText';
 import { isArxivReference, isWebPdfUrl } from '../lib/paperId';
 
 interface BatchImportModalProps {
   open: boolean;
+  folders: FolderRecord[];
   initialFiles?: File[];
   onClose: () => void;
   onFinished: () => void;
@@ -50,6 +54,7 @@ function errorMessage(error: unknown): string {
 
 export function BatchImportModal({
   open,
+  folders,
   initialFiles = [],
   onClose,
   onFinished,
@@ -60,9 +65,12 @@ export function BatchImportModal({
   const [files, setFiles] = useState<File[]>([]);
   const [tasks, setTasks] = useState<ImportTask[]>([]);
   const [error, setError] = useState('');
+  const [txtNotice, setTxtNotice] = useState('');
+  const [targetFolderId, setTargetFolderId] = useState('');
   const [dragging, setDragging] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const txtRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -70,6 +78,8 @@ export function BatchImportModal({
     setLinkText('');
     setTasks([]);
     setError('');
+    setTxtNotice('');
+    setTargetFolderId('');
     setDragging(false);
     setFiles(
       initialFiles.filter(
@@ -79,6 +89,12 @@ export function BatchImportModal({
     // Initial files are a seed for the next opening only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  useEffect(() => {
+    if (targetFolderId && !folders.some((folder) => folder.id === targetFolderId)) {
+      setTargetFolderId('');
+    }
+  }, [folders, targetFolderId]);
 
   useEffect(() => {
     if (!open) return;
@@ -152,6 +168,58 @@ export function BatchImportModal({
     }
   };
 
+  const importTxt = async (file?: File | null) => {
+    if (!file) return;
+    setError('');
+    setTxtNotice('');
+    if (!file.name.toLowerCase().endsWith('.txt') && file.type !== 'text/plain') {
+      setError('请选择 .txt 文本文件');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError('TXT 文件超过 2 MB');
+      return;
+    }
+    try {
+      const text = await file.text();
+      const extracted = extractLinksFromText(text);
+      if (extracted.totalLines === 0) {
+        setTxtNotice('TXT 文件是空的');
+        return;
+      }
+      const existing = new Set(
+        linkText
+          .split(/\r?\n/)
+          .map((value) => value.trim())
+          .filter(Boolean),
+      );
+      const fresh = extracted.links.filter((value) => !existing.has(value));
+      if (fresh.length > 0) {
+        setLinkText((current) =>
+          [current.trim(), ...fresh].filter(Boolean).join('\n'),
+        );
+      }
+      const duplicateCount = extracted.links.length - fresh.length;
+      const parts = [
+        `已读取 ${extracted.totalLines} 行`,
+        `识别 ${extracted.recognizedLines} 行`,
+        `加入 ${fresh.length} 个链接`,
+      ];
+      if (extracted.skippedLines > 0) {
+        parts.push(`跳过 ${extracted.skippedLines} 行`);
+      }
+      if (duplicateCount > 0) {
+        parts.push(`${duplicateCount} 个已存在`);
+      }
+      setTxtNotice(parts.join('，'));
+      if (extracted.links.length === 0) {
+        setError('没有识别到 arXiv 或 PDF 直链，无法识别的行已跳过');
+      }
+    } catch {
+      setError('读取 TXT 文件失败');
+    }
+  };
+
   const total = links.length + files.length;
   const validLinkCount = links.length - invalidLinks.length;
   const completed = tasks.filter(
@@ -204,6 +272,7 @@ export function BatchImportModal({
     setTasks(nextTasks);
     setPhase('running');
     setError('');
+    const folderId = targetFolderId || undefined;
     const controller = new AbortController();
     controllerRef.current = controller;
 
@@ -234,6 +303,7 @@ export function BatchImportModal({
             });
           },
           controller.signal,
+          { folderId },
         );
         updateTask(task.id, {
           status: 'done',
@@ -341,16 +411,39 @@ export function BatchImportModal({
         {phase === 'setup' ? (
           <>
             <div className="batch-section">
-              <label className="batch-label" htmlFor="batch-links">
-                <Link2 size={14} />
-                链接
+              <div className="batch-label">
+                <label className="batch-label-main" htmlFor="batch-links">
+                  <Link2 size={14} />
+                  链接
+                </label>
+                <button
+                  type="button"
+                  className="batch-txt-button"
+                  onClick={() => txtRef.current?.click()}
+                >
+                  <FileText size={12} />
+                  导入 TXT
+                </button>
                 <span>每行一个，支持 arXiv 和任意 PDF 直链</span>
-              </label>
+                <input
+                  ref={txtRef}
+                  type="file"
+                  accept=".txt,text/plain"
+                  hidden
+                  onChange={(event) => {
+                    void importTxt(event.target.files?.[0]);
+                    event.target.value = '';
+                  }}
+                />
+              </div>
               <textarea
                 id="batch-links"
                 className="batch-links"
                 value={linkText}
-                onChange={(event) => setLinkText(event.target.value)}
+                onChange={(event) => {
+                  setLinkText(event.target.value);
+                  setTxtNotice('');
+                }}
                 placeholder={`https://arxiv.org/abs/1706.03762\nhttps://example.com/paper.pdf\n2501.12948`}
                 rows={5}
                 spellCheck={false}
@@ -363,6 +456,11 @@ export function BatchImportModal({
                     <strong>{invalidLinks.length} 个格式无法识别</strong>
                   )}
                 </div>
+              )}
+              {txtNotice && (
+                <p className="batch-txt-notice" role="status">
+                  {txtNotice}
+                </p>
               )}
             </div>
 
@@ -451,6 +549,38 @@ export function BatchImportModal({
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+
+            <div className="batch-section">
+              <label className="batch-label" htmlFor="batch-folder">
+                <Folder size={14} />
+                导入到文件夹
+                <span>本次导入的论文都会放入这里</span>
+              </label>
+              <div className="batch-folder-row">
+                <Folder size={15} />
+                <select
+                  id="batch-folder"
+                  value={targetFolderId}
+                  onChange={(event) => setTargetFolderId(event.target.value)}
+                >
+                  <option value="">不指定（保留原文件夹 / 未分类）</option>
+                  {folders.map((folder) => (
+                    <option value={folder.id} key={folder.id}>
+                      {folder.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {folders.length === 0 ? (
+                <p className="batch-folder-note">
+                  还没有文件夹；可以先在文库左侧新建，或直接导入到未分类。
+                </p>
+              ) : (
+                <p className="batch-folder-note">
+                  已存在的论文如果再次导入，也会移动到所选文件夹。
+                </p>
               )}
             </div>
 

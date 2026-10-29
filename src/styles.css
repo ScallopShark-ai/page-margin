@@ -6187,6 +6187,81 @@ body.is-resizing * {
   color: var(--accent);
 }
 
+.batch-label-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.batch-label-main > svg {
+  color: var(--accent);
+}
+
+.batch-txt-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 23px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--muted-dark);
+  font-size: 8.5px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.batch-txt-button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.batch-txt-notice {
+  margin: 7px 1px 0;
+  color: var(--green);
+  font-size: 8.5px;
+  line-height: 1.5;
+}
+
+.batch-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--accent);
+}
+
+.batch-folder-row select {
+  width: 100%;
+  height: 34px;
+  min-width: 0;
+  padding: 0 4px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 9.5px;
+}
+
+.batch-folder-row:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(220, 89, 55, 0.08);
+}
+
+.batch-folder-note {
+  margin: 6px 1px 0;
+  color: var(--muted);
+  font-size: 8.5px;
+  line-height: 1.5;
+}
+
 .batch-label > span {
   margin-left: auto;
   color: var(--muted);

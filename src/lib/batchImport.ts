@@ -39,6 +39,10 @@ export interface BatchImportResult {
 
 export type BatchProgressHandler = (progress: BatchImportProgress) => void;
 
+export interface BatchImportOptions {
+  folderId?: string | null;
+}
+
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
     throw new DOMException('Import cancelled', 'AbortError');
@@ -60,6 +64,7 @@ async function storeSession(
   pdfBlob: Blob,
   onProgress: BatchProgressHandler,
   signal?: AbortSignal,
+  folderId?: string | null,
 ): Promise<BatchImportResult> {
   throwIfAborted(signal);
   onProgress({ stage: '生成封面', percent: 94 });
@@ -72,6 +77,7 @@ async function storeSession(
     pages: session.pages,
     pdfBlob,
     thumbnail,
+    folderId,
   });
   if (signal?.aborted) {
     throw new DOMException('Import cancelled', 'AbortError');
@@ -90,6 +96,7 @@ async function importArxiv(
   input: string,
   onProgress: BatchProgressHandler,
   signal?: AbortSignal,
+  folderId?: string | null,
 ): Promise<BatchImportResult> {
   onProgress({ stage: '读取 arXiv 信息', percent: 5 });
   const meta = await resolveArxiv(input, signal);
@@ -137,7 +144,7 @@ async function importArxiv(
       pdfHref: '',
       extractedChars: extraction.chars,
     };
-    const result = await storeSession(session, blob, onProgress, signal);
+    const result = await storeSession(session, blob, onProgress, signal, folderId);
     onProgress({ stage: '完成', percent: 100 });
     return result;
   } finally {
@@ -149,6 +156,7 @@ async function importWebPdf(
   url: string,
   onProgress: BatchProgressHandler,
   signal?: AbortSignal,
+  folderId?: string | null,
 ): Promise<BatchImportResult> {
   if (!isWebPdfUrl(url)) {
     throw new Error('请输入有效的 http 或 https PDF 链接');
@@ -209,7 +217,7 @@ async function importWebPdf(
       pdfHref: '',
       extractedChars: extraction.chars,
     };
-    const result = await storeSession(session, blob, onProgress, signal);
+    const result = await storeSession(session, blob, onProgress, signal, folderId);
     onProgress({ stage: '完成', percent: 100 });
     return result;
   } finally {
@@ -221,6 +229,7 @@ async function importLocalFile(
   file: File,
   onProgress: BatchProgressHandler,
   signal?: AbortSignal,
+  folderId?: string | null,
 ): Promise<BatchImportResult> {
   if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
     throw new Error('不是 PDF 文件');
@@ -266,7 +275,7 @@ async function importLocalFile(
       pdfHref: '',
       extractedChars: extraction.chars,
     };
-    const result = await storeSession(session, file, onProgress, signal);
+    const result = await storeSession(session, file, onProgress, signal, folderId);
     onProgress({ stage: '完成', percent: 100 });
     return result;
   } finally {
@@ -278,17 +287,18 @@ export async function importBatchItem(
   item: BatchImportItem,
   onProgress: BatchProgressHandler,
   signal?: AbortSignal,
+  options: BatchImportOptions = {},
 ): Promise<BatchImportResult> {
   if (item.kind === 'file') {
-    return importLocalFile(item.file, onProgress, signal);
+    return importLocalFile(item.file, onProgress, signal, options.folderId);
   }
 
   const value = item.value.trim();
   if (!value) throw new Error('链接为空');
   if (isArxivReference(value)) {
-    return importArxiv(value, onProgress, signal);
+    return importArxiv(value, onProgress, signal, options.folderId);
   }
-  return importWebPdf(value, onProgress, signal);
+  return importWebPdf(value, onProgress, signal, options.folderId);
 }
 
 export function batchItemLabel(item: BatchImportItem): string {
