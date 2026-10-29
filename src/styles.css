@@ -3898,6 +3898,21 @@ body.is-resizing * {
   backdrop-filter: blur(14px);
 }
 
+.library-logo-button {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
+
+.library-logo-button:hover {
+  opacity: 0.72;
+}
+
 .library-breadcrumb {
   color: var(--muted);
   font-family: var(--mono);

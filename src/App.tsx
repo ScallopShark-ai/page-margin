@@ -1425,6 +1425,7 @@ export default function App() {
       currentPaperId={paperRef.current?.key ?? null}
       busyPaperId={libraryBusyId}
       onClose={() => setLibraryOpen(false)}
+      onGoHome={goHome}
       onOpenPaper={(record) => void handleOpenStoredPaper(record)}
       onToggleFavorite={(record) => void handleToggleFavorite(record)}
       onDeletePaper={(record) => void handleDeletePaper(record)}

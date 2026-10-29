@@ -31,6 +31,7 @@ interface LibraryModalProps {
   currentPaperId: string | null;
   busyPaperId: string | null;
   onClose: () => void;
+  onGoHome: () => void;
   onOpenPaper: (paper: StoredPaper) => void;
   onToggleFavorite: (paper: StoredPaper) => void;
   onDeletePaper: (paper: StoredPaper) => void;
@@ -83,6 +84,7 @@ export function LibraryModal({
   currentPaperId,
   busyPaperId,
   onClose,
+  onGoHome,
   onOpenPaper,
   onToggleFavorite,
   onDeletePaper,
@@ -246,7 +248,15 @@ export function LibraryModal({
   return (
     <div className="library-screen" role="dialog" aria-modal="true" aria-label="我的文库">
       <header className="library-topbar">
-        <Logo compact />
+        <button
+          type="button"
+          className="library-logo-button"
+          onClick={onGoHome}
+          title="返回首页"
+          aria-label="返回首页"
+        >
+          <Logo compact />
+        </button>
         <span className="library-breadcrumb">我的文库</span>
         <button
           type="button"
