@@ -8,6 +8,7 @@ import {
   Folder as FolderIcon,
   FolderInput,
   FolderPlus,
+  History,
   Inbox,
   Loader2,
   MessageSquare,
@@ -40,6 +41,7 @@ interface LibraryModalProps {
   onDeleteFolder: (folder: Folder) => Promise<boolean>;
   onMovePaper: (paper: StoredPaper, folderId: string | null) => Promise<boolean>;
   onOpenBatchImport: () => void;
+  onOpenImportHistory: () => void;
 }
 
 type Filter = 'all' | 'arxiv' | 'local' | 'web' | 'favorite';
@@ -93,6 +95,7 @@ export function LibraryModal({
   onDeleteFolder,
   onMovePaper,
   onOpenBatchImport,
+  onOpenImportHistory,
 }: LibraryModalProps) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -110,7 +113,15 @@ export function LibraryModal({
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Escape') return;
+      if (
+        document.querySelector(
+          '.batch-backdrop, .import-history-backdrop, .modal-backdrop',
+        )
+      ) {
+        return;
+      }
+      onClose();
     };
     document.addEventListener('keydown', onKeyDown);
     const previousOverflow = document.body.style.overflow;
@@ -266,6 +277,15 @@ export function LibraryModal({
         >
           <Upload size={14} />
           批量导入
+        </button>
+        <button
+          type="button"
+          className="library-history-button"
+          onClick={onOpenImportHistory}
+          title="查看导入失败记录"
+        >
+          <History size={14} />
+          <span>导入记录</span>
         </button>
         <button type="button" className="library-close" onClick={onClose}>
           <ArrowLeft size={14} />

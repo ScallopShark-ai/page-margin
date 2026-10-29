@@ -2,6 +2,7 @@ import type {
   ChatMessage,
   ConversationThread,
   Folder,
+  ImportHistoryRun,
   PageText,
   PaperContent,
   PaperMeta,
@@ -9,11 +10,13 @@ import type {
 } from '../types';
 
 const DB_NAME = 'pagemargin.library.v1';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const PAPERS = 'papers';
 const CONTENTS = 'contents';
 const CONVERSATIONS = 'conversations';
 const FOLDERS = 'folders';
+const IMPORT_RUNS = 'importRuns';
+const MAX_IMPORT_RUNS = 200;
 
 const FOLDER_COLORS = [
   '#c65b3f',
@@ -52,6 +55,10 @@ function openDatabase(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(FOLDERS)) {
         db.createObjectStore(FOLDERS, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(IMPORT_RUNS)) {
+        const store = db.createObjectStore(IMPORT_RUNS, { keyPath: 'id' });
+        store.createIndex('startedAt', 'startedAt', { unique: false });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -409,6 +416,36 @@ export function messagesForStorage(messages: ChatMessage[]): ChatMessage[] {
       meta: message.meta,
       createdAt: message.createdAt,
     }));
+}
+
+export async function saveImportRun(run: ImportHistoryRun): Promise<void> {
+  const db = await openDatabase();
+  const transaction = db.transaction(IMPORT_RUNS, 'readwrite');
+  const store = transaction.objectStore(IMPORT_RUNS);
+  store.put(run);
+  const rows = (await requestResult(store.getAll())) as ImportHistoryRun[];
+  if (rows.length > MAX_IMPORT_RUNS) {
+    const extra = rows
+      .sort((a, b) => a.startedAt - b.startedAt)
+      .slice(0, rows.length - MAX_IMPORT_RUNS);
+    for (const item of extra) store.delete(item.id);
+  }
+  await transactionDone(transaction);
+}
+
+export async function listImportRuns(): Promise<ImportHistoryRun[]> {
+  const db = await openDatabase();
+  const transaction = db.transaction(IMPORT_RUNS, 'readonly');
+  const rows = await requestResult(transaction.objectStore(IMPORT_RUNS).getAll());
+  await transactionDone(transaction);
+  return (rows as ImportHistoryRun[]).sort((a, b) => b.startedAt - a.startedAt);
+}
+
+export async function clearImportRuns(): Promise<void> {
+  const db = await openDatabase();
+  const transaction = db.transaction(IMPORT_RUNS, 'readwrite');
+  transaction.objectStore(IMPORT_RUNS).clear();
+  await transactionDone(transaction);
 }
 
 export function formatRelativeTime(timestamp: number): string {

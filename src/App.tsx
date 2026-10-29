@@ -29,6 +29,7 @@ import type {
 } from './types';
 import { Landing } from './components/Landing';
 import { BatchImportModal } from './components/BatchImportModal';
+import { ImportHistoryModal } from './components/ImportHistoryModal';
 import { PdfViewer } from './components/PdfViewer';
 import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
@@ -142,6 +143,7 @@ export default function App() {
   const [libraryBusyId, setLibraryBusyId] = useState<string | null>(null);
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchSeedFiles, setBatchSeedFiles] = useState<File[]>([]);
+  const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [threads, setThreads] = useState<ConversationThread[]>([]);
   const threadsRef = useRef<ConversationThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -700,6 +702,7 @@ export default function App() {
     activeThreadIdRef.current = null;
     setHistoryOpen(false);
     setLibraryOpen(false);
+    setImportHistoryOpen(false);
     setLibraryBusyId(null);
     setLoading(null);
     setLoadError('');
@@ -1434,6 +1437,14 @@ export default function App() {
       onDeleteFolder={handleDeleteFolder}
       onMovePaper={handleMovePaper}
       onOpenBatchImport={() => openBatchImport()}
+      onOpenImportHistory={() => setImportHistoryOpen(true)}
+    />
+  );
+
+  const importHistoryModal = (
+    <ImportHistoryModal
+      open={importHistoryOpen}
+      onClose={() => setImportHistoryOpen(false)}
     />
   );
 
@@ -1457,6 +1468,7 @@ export default function App() {
         {settingsModal}
         {libraryModal}
         {batchModal}
+        {importHistoryModal}
         {dragging && (
           <div className="drag-overlay" aria-hidden="true">
             <div className="drag-overlay-inner">
@@ -1634,6 +1646,7 @@ export default function App() {
       {settingsModal}
       {libraryModal}
       {batchModal}
+      {importHistoryModal}
 
       {dragging && (
         <div className="drag-overlay" aria-hidden="true">

@@ -131,6 +131,30 @@ export interface Folder {
   updatedAt: number;
 }
 
+export type ImportHistoryItemStatus = 'done' | 'error' | 'cancelled';
+
+export interface ImportHistoryItem {
+  id: string;
+  label: string;
+  kind: 'link' | 'file';
+  status: ImportHistoryItemStatus;
+  title?: string;
+  error?: string;
+}
+
+export interface ImportHistoryRun {
+  id: string;
+  startedAt: number;
+  finishedAt: number;
+  folderId?: string | null;
+  folderName?: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  cancelled: number;
+  items: ImportHistoryItem[];
+}
+
 export interface PaperContent {
   paperId: string;
   pages: PageText[];

@@ -12,9 +12,13 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import type { Folder as FolderRecord } from '../types';
+import type {
+  Folder as FolderRecord,
+  ImportHistoryItem,
+} from '../types';
 import type { BatchImportItem } from '../lib/batchImport';
 import { importBatchItem, newBatchTaskId } from '../lib/batchImport';
+import { saveImportRun } from '../lib/library';
 import { extractLinksFromText } from '../lib/linkText';
 import { isArxivReference, isWebPdfUrl } from '../lib/paperId';
 
@@ -273,20 +277,39 @@ export function BatchImportModal({
     setPhase('running');
     setError('');
     const folderId = targetFolderId || undefined;
+    const folder = folders.find((item) => item.id === folderId);
+    const startedAt = Date.now();
+    const outcomes = new Map<string, ImportHistoryItem>();
+    const recordOutcome = (
+      task: ImportTask,
+      status: ImportHistoryItem['status'],
+      extra?: { error?: string; title?: string },
+    ) => {
+      outcomes.set(task.id, {
+        id: task.id,
+        label: task.label,
+        kind: task.item.kind,
+        status,
+        ...extra,
+      });
+    };
     const controller = new AbortController();
     controllerRef.current = controller;
 
     for (const task of nextTasks) {
       if (controller.signal.aborted) {
         updateTask(task.id, { status: 'cancelled', detail: '已取消', percent: 0 });
+        recordOutcome(task, 'cancelled');
         continue;
       }
       if (task.invalid) {
+        const invalidMessage = '不是有效的 arXiv 或 PDF 链接';
         updateTask(task.id, {
           status: 'error',
-          detail: '不是有效的 arXiv 或 PDF 链接',
+          detail: invalidMessage,
           percent: 0,
         });
+        recordOutcome(task, 'error', { error: invalidMessage });
         continue;
       }
       updateTask(task.id, { status: 'running', detail: '准备导入…', percent: 2 });
@@ -312,16 +335,22 @@ export function BatchImportModal({
           title: result.title,
           warning: result.warning,
         });
+        recordOutcome(task, 'done', { title: result.title });
       } catch (importError) {
         const aborted = controller.signal.aborted || (importError as Error)?.name === 'AbortError';
+        const failureMessage = aborted ? '已取消' : errorMessage(importError);
         updateTask(task.id, {
           status: aborted ? 'cancelled' : 'error',
-          detail: aborted ? '已取消' : errorMessage(importError),
+          detail: failureMessage,
           percent: 0,
+        });
+        recordOutcome(task, aborted ? 'cancelled' : 'error', {
+          error: aborted ? undefined : failureMessage,
         });
         if (aborted) {
           for (const rest of nextTasks) {
             if (rest.id === task.id) continue;
+            if (!outcomes.has(rest.id)) recordOutcome(rest, 'cancelled');
             setTasks((current) =>
               current.map((item) =>
                 item.id === rest.id && item.status === 'queued'
@@ -332,6 +361,40 @@ export function BatchImportModal({
           }
           break;
         }
+      }
+    }
+
+    const historyItems = nextTasks.map(
+      (task) =>
+        outcomes.get(task.id) ?? {
+          id: task.id,
+          label: task.label,
+          kind: task.item.kind,
+          status: 'cancelled' as const,
+        },
+    );
+    const historySucceeded = historyItems.filter((item) => item.status === 'done').length;
+    const historyFailed = historyItems.filter((item) => item.status === 'error').length;
+    const historyCancelled = historyItems.filter(
+      (item) => item.status === 'cancelled',
+    ).length;
+
+    if (historyFailed > 0 || historyCancelled > 0) {
+      try {
+        await saveImportRun({
+          id: newBatchTaskId(),
+          startedAt,
+          finishedAt: Date.now(),
+          folderId: folderId ?? null,
+          folderName: folder?.name,
+          total: historyItems.length,
+          succeeded: historySucceeded,
+          failed: historyFailed,
+          cancelled: historyCancelled,
+          items: historyItems,
+        });
+      } catch (historyError) {
+        console.warn('Failed to save import history', historyError);
       }
     }
 
