@@ -45,7 +45,15 @@ interface LibraryModalProps {
 }
 
 type Filter = 'all' | 'arxiv' | 'local' | 'web' | 'favorite';
-type Sort = 'recent' | 'added' | 'title';
+type Sort =
+  | 'recent'
+  | 'added'
+  | 'progress-desc'
+  | 'progress-asc'
+  | 'title-asc'
+  | 'title-desc'
+  | 'published-desc'
+  | 'published-asc';
 type FolderSelection = 'all' | 'unfiled' | string;
 
 const FILTERS: { id: Filter; label: string }[] = [
@@ -60,6 +68,27 @@ function formatBytes(bytes: number): string {
   if (!bytes) return '0 MB';
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function readingProgress(paper: StoredPaper): number {
+  if (paper.pageCount <= 0) return 0;
+  return Math.min(1, Math.max(0, paper.lastPage / paper.pageCount));
+}
+
+function publicationTime(paper: StoredPaper): number | null {
+  if (paper.published) {
+    const parsed = Date.parse(paper.published);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  const year = Number(paper.year);
+  if (Number.isFinite(year) && year > 0) {
+    return Date.UTC(year, 0, 1);
+  }
+  return null;
+}
+
+function compareTitles(a: StoredPaper, b: StoredPaper): number {
+  return a.title.localeCompare(b.title, 'zh-CN', { sensitivity: 'base' });
 }
 
 function PaperCover({ paper }: { paper: StoredPaper }) {
@@ -190,7 +219,35 @@ export function LibraryModal({
         .includes(query);
     });
     return [...rows].sort((a, b) => {
-      if (sort === 'title') return a.title.localeCompare(b.title, 'zh-CN');
+      if (sort === 'title-asc') {
+        return compareTitles(a, b) || b.lastOpenedAt - a.lastOpenedAt;
+      }
+      if (sort === 'title-desc') {
+        return compareTitles(b, a) || b.lastOpenedAt - a.lastOpenedAt;
+      }
+      if (sort === 'progress-desc') {
+        return (
+          readingProgress(b) - readingProgress(a) ||
+          compareTitles(a, b) ||
+          b.lastOpenedAt - a.lastOpenedAt
+        );
+      }
+      if (sort === 'progress-asc') {
+        return (
+          readingProgress(a) - readingProgress(b) ||
+          compareTitles(a, b) ||
+          b.lastOpenedAt - a.lastOpenedAt
+        );
+      }
+      if (sort === 'published-desc' || sort === 'published-asc') {
+        const aTime = publicationTime(a);
+        const bTime = publicationTime(b);
+        if (aTime === null && bTime === null) return compareTitles(a, b);
+        if (aTime === null) return 1;
+        if (bTime === null) return -1;
+        const diff = sort === 'published-desc' ? bTime - aTime : aTime - bTime;
+        return diff || compareTitles(a, b);
+      }
       if (sort === 'added') return b.createdAt - a.createdAt;
       return b.lastOpenedAt - a.lastOpenedAt;
     });
@@ -594,9 +651,22 @@ export function LibraryModal({
             <label className="library-sort">
               <span>排序</span>
               <select value={sort} onChange={(event) => setSort(event.target.value as Sort)}>
-                <option value="recent">最近打开</option>
-                <option value="added">最近添加</option>
-                <option value="title">标题</option>
+                <optgroup label="时间">
+                  <option value="recent">最近打开</option>
+                  <option value="added">最近添加</option>
+                </optgroup>
+                <optgroup label="阅读进度">
+                  <option value="progress-desc">阅读进度：从高到低</option>
+                  <option value="progress-asc">阅读进度：从低到高</option>
+                </optgroup>
+                <optgroup label="标题">
+                  <option value="title-asc">标题：A → Z</option>
+                  <option value="title-desc">标题：Z → A</option>
+                </optgroup>
+                <optgroup label="发表时间">
+                  <option value="published-desc">发表时间：新 → 旧</option>
+                  <option value="published-asc">发表时间：旧 → 新</option>
+                </optgroup>
               </select>
             </label>
           </div>

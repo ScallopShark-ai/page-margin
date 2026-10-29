@@ -7820,6 +7820,16 @@ body.is-resizing * {
   }
 }
 
+.library-sort select {
+  max-width: 190px;
+}
+
+@media (max-width: 680px) {
+  .library-sort select {
+    max-width: 172px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
