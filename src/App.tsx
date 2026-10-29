@@ -30,6 +30,7 @@ import type {
 } from './types';
 import { Landing } from './components/Landing';
 import { BatchImportModal } from './components/BatchImportModal';
+import { DeepSeekSetupModal } from './components/DeepSeekSetupModal';
 import { ImportHistoryModal } from './components/ImportHistoryModal';
 import { PdfViewer } from './components/PdfViewer';
 import { ChatPanel } from './components/ChatPanel';
@@ -86,7 +87,9 @@ import {
   webPaperId,
 } from './lib/paperId';
 import {
+  DEFAULT_PDF2ZH_CONFIG,
   fetchPdf2zhFile,
+  isDeepseekConfigured,
   loadPdf2zhConfig,
   normalizePdf2zhConfig,
   pickPdf2zhMonoFile,
@@ -190,6 +193,23 @@ export default function App() {
 
   const modelReady = hasUsableModel(config, serverConfig);
   const modelStatusLabel = modelLabel(config, Boolean(serverConfig?.serverConfigured));
+  const needsDeepseekSetup = !isDeepseekConfigured(pdf2zhConfig);
+  const deepseekSetupInitial: Pdf2zhConfig = {
+    ...pdf2zhConfig,
+    apiUrl:
+      pdf2zhConfig.apiUrl ||
+      (config.provider === 'deepseek'
+        ? config.baseUrl
+        : DEFAULT_PDF2ZH_CONFIG.apiUrl),
+    apiKey:
+      pdf2zhConfig.apiKey ||
+      (config.provider === 'deepseek' ? config.apiKey : ''),
+    model:
+      pdf2zhConfig.model ||
+      (config.provider === 'deepseek'
+        ? config.model
+        : DEFAULT_PDF2ZH_CONFIG.model),
+  };
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -1858,6 +1878,12 @@ export default function App() {
           onDismissError={() => setLoadError('')}
         />
       )}
+
+      <DeepSeekSetupModal
+        open={needsDeepseekSetup}
+        initial={deepseekSetupInitial}
+        onSave={handleSavePdf2zhConfig}
+      />
 
       {settingsModal}
       {libraryModal}

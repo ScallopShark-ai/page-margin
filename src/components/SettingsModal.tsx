@@ -73,6 +73,7 @@ export function SettingsModal({
   const [draft, setDraft] = useState<ModelConfig>(config);
   const [pdf2zhDraft, setPdf2zhDraft] = useState<Pdf2zhConfig>(pdf2zhConfig);
   const [showKey, setShowKey] = useState(false);
+  const [showPdfKey, setShowPdfKey] = useState(false);
   const [error, setError] = useState('');
   const [modelOptions, setModelOptions] = useState<ModelListItem[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -89,6 +90,7 @@ export function SettingsModal({
     setDraft(config);
     setPdf2zhDraft(pdf2zhConfig);
     setShowKey(false);
+    setShowPdfKey(false);
     setError('');
     setProfiles(loadSavedModels());
     setSavedNotice('');
@@ -226,6 +228,9 @@ export function SettingsModal({
       baseUrl: pdf2zhDraft.baseUrl.trim().replace(/\/+$/, ''),
       engine: pdf2zhDraft.engine,
       service: pdf2zhDraft.service.trim(),
+      apiUrl: pdf2zhDraft.apiUrl.trim().replace(/\/+$/, ''),
+      apiKey: pdf2zhDraft.apiKey.trim(),
+      model: pdf2zhDraft.model.trim(),
     };
     if (nextPdf2zh.baseUrl) {
       try {
@@ -235,6 +240,10 @@ export function SettingsModal({
         setError('PDF 翻译服务地址需要是完整的 http(s) 地址');
         return;
       }
+    }
+    if (!nextPdf2zh.apiKey || !nextPdf2zh.apiUrl || !nextPdf2zh.model) {
+      setError('PDF 全文翻译必须配置 DeepSeek API Key、Base URL 和模型');
+      return;
     }
     const next = normalizeDraft();
     if (!next) return;
@@ -626,7 +635,7 @@ export function SettingsModal({
                 <Languages size={14} />
                 PDF 全文翻译
               </span>
-              <em>可选</em>
+              <em>首次必配</em>
             </div>
             <p>
               连接本机的 zotero-pdf2zh 服务。首次在阅读器点击「翻译 PDF」时，
@@ -682,9 +691,70 @@ export function SettingsModal({
                 />
               </label>
             </div>
+            <label className="settings-field">
+              DeepSeek API Base URL
+              <input
+                value={pdf2zhDraft.apiUrl}
+                onChange={(event) =>
+                  setPdf2zhDraft((current) => ({
+                    ...current,
+                    apiUrl: event.target.value,
+                  }))
+                }
+                placeholder="https://api.deepseek.com"
+                spellCheck={false}
+                aria-label="DeepSeek 翻译 API Base URL"
+              />
+            </label>
+            <label className="settings-field">
+              DeepSeek API Key
+              <div className="deepseek-key-field">
+                <span className="deepseek-key-icon">
+                  <KeyRound size={14} />
+                </span>
+                <input
+                  type={showPdfKey ? 'text' : 'password'}
+                  value={pdf2zhDraft.apiKey}
+                  onChange={(event) =>
+                    setPdf2zhDraft((current) => ({
+                      ...current,
+                      apiKey: event.target.value,
+                    }))
+                  }
+                  placeholder="sk-…"
+                  spellCheck={false}
+                  autoComplete="off"
+                  aria-label="DeepSeek 翻译 API Key"
+                />
+                <button
+                  type="button"
+                  className="reveal-button"
+                  onClick={() => setShowPdfKey((value) => !value)}
+                  aria-label={showPdfKey ? '隐藏翻译 API Key' : '显示翻译 API Key'}
+                >
+                  {showPdfKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+            </label>
+            <label className="settings-field">
+              DeepSeek 翻译模型
+              <input
+                value={pdf2zhDraft.model}
+                onChange={(event) =>
+                  setPdf2zhDraft((current) => ({
+                    ...current,
+                    model: event.target.value,
+                  }))
+                }
+                placeholder="deepseek-chat"
+                spellCheck={false}
+                aria-label="DeepSeek 翻译模型"
+              />
+            </label>
             <p className="settings-pdf2zh-hint">
               服务名称需与 pdf2zh 服务端配置一致，例如 openai、deepseek、bing。
-              这里只生成中文单语 PDF，不额外显示双语文件。
+              DeepSeek Key 保存在当前浏览器，用于整篇 PDF 翻译；本地运行时不写入
+              项目仓库。这里只生成中文单语 PDF，不额外显示双语文件。
             </p>
           </section>
 

@@ -89,6 +89,38 @@ async function requestService(url, options = {}) {
   return { response, payload };
 }
 
+function parseClientLlmConfig(req) {
+  const raw = req.get('X-PDF2zh-Config');
+  if (!raw) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
+  } catch {
+    throw pdf2zhError('PDF 翻译 API 配置无法解析');
+  }
+  const apiUrl = String(parsed?.apiUrl ?? '').trim().replace(/\/+$/, '');
+  const apiKey = String(parsed?.apiKey ?? '').trim();
+  const model = String(parsed?.model ?? '').trim();
+  if (!apiUrl || !apiKey || !model) {
+    throw pdf2zhError('首次使用需要配置 DeepSeek API Key、Base URL 和模型');
+  }
+  let url;
+  try {
+    url = new URL(apiUrl);
+  } catch {
+    throw pdf2zhError('DeepSeek API Base URL 无效');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw pdf2zhError('DeepSeek API Base URL 只支持 http/https');
+  }
+  return {
+    apiKey,
+    apiUrl,
+    model,
+    extraData: {},
+  };
+}
+
 function findTask(tasks, taskId) {
   if (!Array.isArray(tasks)) return null;
   return (
@@ -128,11 +160,13 @@ export function createPdf2zhRouter() {
           throw pdf2zhError('上传内容不是有效的 PDF');
         }
 
+        const llmApi = parseClientLlmConfig(req);
         const config = {
           fileName,
           fileContent: pdf.toString('base64'),
           engine,
           service,
+          ...(llmApi ? { llm_api: llmApi } : {}),
           next_service: service,
           sourceLang: 'en',
           targetLang: 'zh-CN',

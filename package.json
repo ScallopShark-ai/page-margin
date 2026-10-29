@@ -1,6 +1,6 @@
 {
   "name": "page-margin",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "海拉 — a paper reading workspace with an AI margin companion",
@@ -8,7 +8,10 @@
     "dev": "concurrently -k -n server,web -c green,cyan \"node --watch server/index.mjs\" \"vite\"",
     "build": "tsc --noEmit && vite build",
     "start": "node server/start.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup:pdf2zh": "node scripts/setup-pdf2zh.mjs",
+    "deploy": "node scripts/deploy.mjs",
+    "upgrade": "node scripts/upgrade.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",

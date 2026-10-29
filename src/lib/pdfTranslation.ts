@@ -4,6 +4,9 @@ export interface Pdf2zhConfig {
   baseUrl: string;
   engine: Pdf2zhEngine;
   service: string;
+  apiUrl: string;
+  apiKey: string;
+  model: string;
 }
 
 export interface Pdf2zhTask {
@@ -29,7 +32,14 @@ export const DEFAULT_PDF2ZH_CONFIG: Pdf2zhConfig = {
   baseUrl: 'http://127.0.0.1:8891',
   engine: 'pdf2zh_next',
   service: 'deepseek',
+  apiUrl: 'https://api.deepseek.com',
+  apiKey: '',
+  model: 'deepseek-chat',
 };
+
+export function isDeepseekConfigured(config: Pdf2zhConfig): boolean {
+  return Boolean(config.apiKey.trim() && config.apiUrl.trim() && config.model.trim());
+}
 
 export function loadPdf2zhConfig(): Pdf2zhConfig {
   try {
@@ -56,6 +66,16 @@ export function loadPdf2zhConfig(): Pdf2zhConfig {
         typeof parsed.service === 'string' && parsed.service.trim()
           ? parsed.service.trim()
           : DEFAULT_PDF2ZH_CONFIG.service,
+      apiUrl:
+        typeof parsed.apiUrl === 'string' && parsed.apiUrl.trim()
+          ? parsed.apiUrl.trim()
+          : DEFAULT_PDF2ZH_CONFIG.apiUrl,
+      apiKey:
+        typeof parsed.apiKey === 'string' ? parsed.apiKey.trim() : '',
+      model:
+        typeof parsed.model === 'string' && parsed.model.trim()
+          ? parsed.model.trim()
+          : DEFAULT_PDF2ZH_CONFIG.model,
     };
   } catch {
     return { ...DEFAULT_PDF2ZH_CONFIG };
@@ -82,13 +102,31 @@ export function normalizePdf2zhConfig(config: Pdf2zhConfig): Pdf2zhConfig | null
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
   const engine: Pdf2zhEngine =
     config.engine === 'pdf2zh' ? 'pdf2zh' : 'pdf2zh_next';
+  const apiUrl = config.apiUrl.trim().replace(/\/+$/, '');
+  const apiKey = config.apiKey.trim();
+  const model = config.model.trim();
+  if (!apiUrl || !apiKey || !model) return null;
+  try {
+    const api = new URL(apiUrl);
+    if (!['http:', 'https:'].includes(api.protocol)) return null;
+  } catch {
+    return null;
+  }
   return {
     baseUrl,
     engine,
-    service:
-      config.service.trim() ||
-      (engine === 'pdf2zh' ? 'bing' : 'siliconflowfree'),
+    service: config.service.trim() || 'deepseek',
+    apiUrl,
+    apiKey,
+    model,
   };
+}
+
+function base64Json(value: unknown): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }
 
 async function readError(response: Response): Promise<string> {
@@ -125,7 +163,15 @@ export async function submitPdf2zh(
   });
   const response = await fetch(`/api/pdf2zh/translate?${params.toString()}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/pdf' },
+    headers: {
+      'Content-Type': 'application/pdf',
+      'X-PDF2zh-Config': base64Json({
+        apiUrl: config.apiUrl,
+        apiKey: config.apiKey,
+        model: config.model,
+        service: config.service,
+      }),
+    },
     body: pdf,
     signal,
   });
