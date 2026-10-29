@@ -660,8 +660,8 @@ export function LibraryModal({
                   <option value="progress-asc">阅读进度：从低到高</option>
                 </optgroup>
                 <optgroup label="标题">
-                  <option value="title-asc">标题：A → Z</option>
-                  <option value="title-desc">标题：Z → A</option>
+                  <option value="title-asc">标题：升序</option>
+                  <option value="title-desc">标题：降序</option>
                 </optgroup>
                 <optgroup label="发表时间">
                   <option value="published-desc">发表时间：新 → 旧</option>
