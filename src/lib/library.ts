@@ -347,6 +347,27 @@ export async function updatePaper(
   return next;
 }
 
+export async function movePapersToFolder(
+  ids: string[],
+  folderId: string | null,
+): Promise<number> {
+  const uniqueIds = Array.from(new Set(ids));
+  if (uniqueIds.length === 0) return 0;
+  const db = await openDatabase();
+  const transaction = db.transaction(PAPERS, 'readwrite');
+  const store = transaction.objectStore(PAPERS);
+  const now = Date.now();
+  let updated = 0;
+  for (const id of uniqueIds) {
+    const row = (await requestResult(store.get(id))) as StoredPaper | undefined;
+    if (!row) continue;
+    store.put({ ...row, folderId, updatedAt: now });
+    updated += 1;
+  }
+  await transactionDone(transaction);
+  return updated;
+}
+
 export async function deletePaper(id: string): Promise<void> {
   const db = await openDatabase();
   const transaction = db.transaction([PAPERS, CONTENTS, CONVERSATIONS], 'readwrite');

@@ -39,7 +39,7 @@ interface LibraryModalProps {
   onCreateFolder: (name: string) => Promise<Folder | null>;
   onRenameFolder: (folder: Folder, name: string) => Promise<boolean>;
   onDeleteFolder: (folder: Folder) => Promise<boolean>;
-  onMovePaper: (paper: StoredPaper, folderId: string | null) => Promise<boolean>;
+  onMovePapers: (papers: StoredPaper[], folderId: string | null) => Promise<boolean>;
   onOpenBatchImport: () => void;
   onOpenImportHistory: () => void;
 }
@@ -93,7 +93,7 @@ export function LibraryModal({
   onCreateFolder,
   onRenameFolder,
   onDeleteFolder,
-  onMovePaper,
+  onMovePapers,
   onOpenBatchImport,
   onOpenImportHistory,
 }: LibraryModalProps) {
@@ -107,8 +107,10 @@ export function LibraryModal({
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [folderDraft, setFolderDraft] = useState('');
   const [folderSaving, setFolderSaving] = useState(false);
-  const [movingPaper, setMovingPaper] = useState<StoredPaper | null>(null);
+  const [movingPapers, setMovingPapers] = useState<StoredPaper[]>([]);
   const [moveTarget, setMoveTarget] = useState<string | 'unfiled' | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     if (!open) return;
@@ -153,6 +155,18 @@ export function LibraryModal({
     }
   }, [folders, selectedFolder]);
 
+  useEffect(() => {
+    if (!open) {
+      setSelectionMode(false);
+      setSelectedIds(new Set());
+      setMovingPapers([]);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [filter, search, selectedFolder, sort]);
+
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     const rows = papers.filter((paper) => {
@@ -183,6 +197,11 @@ export function LibraryModal({
   }, [papers, search, filter, sort, selectedFolder]);
 
   if (!open) return null;
+
+  const selectedPapers = filtered.filter((paper) => selectedIds.has(paper.id));
+  const selectedCount = selectedPapers.length;
+  const allVisibleSelected =
+    filtered.length > 0 && filtered.every((paper) => selectedIds.has(paper.id));
 
   const totalConversations = papers.reduce(
     (sum, paper) => sum + paper.conversationCount,
@@ -248,16 +267,59 @@ export function LibraryModal({
     if (ok && selectedFolder === folder.id) setSelectedFolder('unfiled');
   };
 
-  const movePaperTo = async (target: string | null) => {
-    if (!movingPaper) return;
+  const toggleSelect = (id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const enterSelectionMode = () => {
+    setSelectionMode(true);
+    setSelectedIds(new Set());
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const selectAllVisible = () => {
+    setSelectedIds(new Set(filtered.map((paper) => paper.id)));
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const openBatchMove = () => {
+    if (selectedPapers.length > 0) setMovingPapers(selectedPapers);
+  };
+
+  const commonFolderId =
+    movingPapers.length > 0 &&
+    movingPapers.every((paper) => paper.folderId === movingPapers[0].folderId)
+      ? movingPapers[0].folderId
+      : '__mixed__';
+
+  const movePapersTo = async (target: string | null) => {
+    if (movingPapers.length === 0) return;
     setMoveTarget(target ?? 'unfiled');
-    const ok = await onMovePaper(movingPaper, target);
+    const ok = await onMovePapers(movingPapers, target);
     setMoveTarget(null);
-    if (ok) setMovingPaper(null);
+    if (ok) {
+      setMovingPapers([]);
+      setSelectedIds(new Set());
+    }
   };
 
   return (
-    <div className="library-screen" role="dialog" aria-modal="true" aria-label="我的文库">
+    <div
+      className={`library-screen ${selectionMode ? 'is-selecting' : ''}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="我的文库"
+    >
       <header className="library-topbar">
         <button
           type="button"
@@ -602,12 +664,29 @@ export function LibraryModal({
                   {selectedFolderLabel} · {filtered.length} 篇
                   {search ? ` · “${search}”` : ''}
                 </span>
-                <span>点击卡片继续阅读</span>
+                <div className="library-result-tools">
+                  <span>
+                    {selectionMode ? '点击卡片选择' : '点击卡片继续阅读'}
+                  </span>
+                  <button
+                    type="button"
+                    className={`library-organize-toggle ${
+                      selectionMode ? 'is-active' : ''
+                    }`}
+                    onClick={
+                      selectionMode ? exitSelectionMode : enterSelectionMode
+                    }
+                  >
+                    <FolderInput size={12} />
+                    {selectionMode ? '退出整理' : '批量整理'}
+                  </button>
+                </div>
               </div>
               <div className="library-grid">
                 {filtered.map((paper) => {
                   const isCurrent = paper.id === currentPaperId;
                   const isBusy = busyPaperId === paper.id;
+                  const isSelected = selectedIds.has(paper.id);
                   const progress =
                     paper.pageCount > 0
                       ? Math.min(100, Math.max(0, (paper.lastPage / paper.pageCount) * 100))
@@ -620,25 +699,36 @@ export function LibraryModal({
                       key={paper.id}
                       className={`library-card ${isCurrent ? 'is-current' : ''} ${
                         isBusy ? 'is-busy' : ''
+                      } ${selectionMode ? 'is-selecting' : ''} ${
+                        isSelected ? 'is-selected' : ''
                       }`}
                       onClick={() => {
-                        if (!isBusy) onOpenPaper(paper);
+                        if (isBusy) return;
+                        if (selectionMode) toggleSelect(paper.id);
+                        else onOpenPaper(paper);
                       }}
                       onKeyDown={(event) => {
                         if (event.target !== event.currentTarget) return;
-                        if ((event.key === 'Enter' || event.key === ' ') && !isBusy) {
+                        if (!isBusy && (event.key === 'Enter' || event.key === ' ')) {
                           event.preventDefault();
-                          onOpenPaper(paper);
+                          if (selectionMode) toggleSelect(paper.id);
+                          else onOpenPaper(paper);
                         }
                       }}
                       role="button"
                       tabIndex={0}
-                      aria-label={`打开论文：${paper.title}`}
+                      aria-label={
+                        selectionMode
+                          ? `${isSelected ? '取消选择' : '选择'}论文：${paper.title}`
+                          : `打开论文：${paper.title}`
+                      }
+                      aria-pressed={selectionMode ? isSelected : undefined}
                     >
                       <div className="library-cover">
                         <PaperCover paper={paper} />
                         <div className="library-cover-shade" />
-                        <div className="library-card-actions">
+                        {!selectionMode && (
+                          <div className="library-card-actions">
                           <button
                             type="button"
                             className={`favorite-button ${paper.favorite ? 'is-favorite' : ''}`}
@@ -656,7 +746,7 @@ export function LibraryModal({
                             className="card-folder-button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              setMovingPaper(paper);
+                              setMovingPapers([paper]);
                             }}
                             aria-label="移动到文件夹"
                             title="移动到文件夹"
@@ -675,7 +765,26 @@ export function LibraryModal({
                           >
                             <Trash2 size={13} />
                           </button>
-                        </div>
+                          </div>
+                        )}
+                        {selectionMode && (
+                          <button
+                            type="button"
+                            className={`library-card-select ${
+                              isSelected ? 'is-selected' : ''
+                            }`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleSelect(paper.id);
+                            }}
+                            aria-label={
+                              isSelected ? '取消选择' : '选择这篇论文'
+                            }
+                            aria-pressed={isSelected}
+                          >
+                            {isSelected && <Check size={14} />}
+                          </button>
+                        )}
                         <div className="library-cover-badges">
                           <span className={`source-badge source-${paper.source}`}>
                             {paper.source === 'arxiv'
@@ -687,21 +796,23 @@ export function LibraryModal({
                           {isCurrent && <span className="current-badge">正在阅读</span>}
                           {unavailable && <span className="missing-badge">缺少文件</span>}
                         </div>
-                        <div className="library-open-hint">
-                          {isBusy ? (
-                            <>
-                              <Loader2 size={14} className="spin" />
-                              正在打开
-                            </>
-                          ) : unavailable ? (
-                            '需重新导入'
-                          ) : (
-                            <>
-                              继续阅读
-                              <ArrowUpRight size={14} />
-                            </>
-                          )}
-                        </div>
+                        {!selectionMode && (
+                          <div className="library-open-hint">
+                            {isBusy ? (
+                              <>
+                                <Loader2 size={14} className="spin" />
+                                正在打开
+                              </>
+                            ) : unavailable ? (
+                              '需重新导入'
+                            ) : (
+                              <>
+                                继续阅读
+                                <ArrowUpRight size={14} />
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="library-card-body">
@@ -779,11 +890,48 @@ export function LibraryModal({
         </footer>
       </div>
 
-      {movingPaper && (
+      {selectionMode && (
+        <div className="library-selection-bar" role="region" aria-label="批量整理论文">
+          <div className="library-selection-info">
+            <strong>已选 {selectedCount} 篇</strong>
+            <span>{selectedFolderLabel} · 点击卡片继续选择</span>
+          </div>
+          <div className="library-selection-actions">
+            <button
+              type="button"
+              onClick={allVisibleSelected ? clearSelection : selectAllVisible}
+              disabled={filtered.length === 0}
+            >
+              {allVisibleSelected ? '取消全选' : '全选当前'}
+            </button>
+            <button
+              type="button"
+              onClick={clearSelection}
+              disabled={selectedCount === 0}
+            >
+              清空
+            </button>
+            <button
+              type="button"
+              className="library-selection-primary"
+              onClick={openBatchMove}
+              disabled={selectedCount === 0}
+            >
+              <FolderInput size={13} />
+              移动到文件夹
+            </button>
+            <button type="button" onClick={exitSelectionMode}>
+              完成
+            </button>
+          </div>
+        </div>
+      )}
+
+      {movingPapers.length > 0 && (
         <div
           className="folder-picker-backdrop"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setMovingPaper(null);
+            if (event.target === event.currentTarget) setMovingPapers([]);
           }}
         >
           <div
@@ -798,13 +946,21 @@ export function LibraryModal({
                 <FolderInput size={17} />
               </span>
               <div>
-                <strong>移动到文件夹</strong>
-                <span>{movingPaper.title}</span>
+                <strong>
+                  {movingPapers.length === 1
+                    ? '移动到文件夹'
+                    : `移动 ${movingPapers.length} 篇论文`}
+                </strong>
+                <span>
+                  {movingPapers.length === 1
+                    ? movingPapers[0].title
+                    : '为本次选中的论文选择目标文件夹'}
+                </span>
               </div>
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => setMovingPaper(null)}
+                onClick={() => setMovingPapers([])}
                 aria-label="关闭"
               >
                 <X size={16} />
@@ -815,26 +971,26 @@ export function LibraryModal({
               <button
                 type="button"
                 className={`folder-picker-row ${
-                  !movingPaper.folderId ? 'is-active' : ''
+                  commonFolderId === null ? 'is-active' : ''
                 }`}
                 disabled={moveTarget !== null}
-                onClick={() => void movePaperTo(null)}
+                onClick={() => void movePapersTo(null)}
               >
                 <span className="folder-picker-row-icon">
                   <Inbox size={14} />
                 </span>
                 <span>未分类</span>
-                {!movingPaper.folderId && <Check size={14} />}
+                {commonFolderId === null && <Check size={14} />}
               </button>
               {folders.map((folder) => {
-                const active = movingPaper.folderId === folder.id;
+                const active = commonFolderId === folder.id;
                 return (
                   <button
                     key={folder.id}
                     type="button"
                     className={`folder-picker-row ${active ? 'is-active' : ''}`}
                     disabled={moveTarget !== null}
-                    onClick={() => void movePaperTo(folder.id)}
+                    onClick={() => void movePapersTo(folder.id)}
                   >
                     <span
                       className="folder-dot"
@@ -854,7 +1010,7 @@ export function LibraryModal({
             )}
 
             <div className="folder-picker-foot">
-              <button type="button" onClick={() => setMovingPaper(null)}>
+              <button type="button" onClick={() => setMovingPapers([])}>
                 取消
               </button>
             </div>

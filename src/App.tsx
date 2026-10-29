@@ -65,6 +65,7 @@ import {
   listPapers,
   listThreads,
   messagesForStorage,
+  movePapersToFolder,
   renameFolder as renameStoredFolder,
   savePaper,
   saveThread,
@@ -922,19 +923,32 @@ export default function App() {
     }
   };
 
-  const handleMovePaper = async (
-    record: StoredPaper,
+  const handleMovePapers = async (
+    records: StoredPaper[],
     folderId: string | null,
   ): Promise<boolean> => {
+    const ids = Array.from(new Set(records.map((record) => record.id)));
+    if (ids.length === 0) return false;
     try {
-      const updated = await updatePaper(record.id, { folderId });
-      if (!updated) return false;
+      const updated = await movePapersToFolder(ids, folderId);
+      if (updated === 0) return false;
+      const idSet = new Set(ids);
       setPapers((current) =>
-        current.map((item) => (item.id === updated.id ? updated : item)),
+        current.map((item) =>
+          idSet.has(item.id) ? { ...item, folderId } : item,
+        ),
+      );
+      const folderName = folderId
+        ? folders.find((folder) => folder.id === folderId)?.name
+        : '';
+      setToast(
+        folderId
+          ? `已将 ${updated} 篇论文移动到「${folderName || '文件夹'}」`
+          : `已将 ${updated} 篇论文移至未分类`,
       );
       return true;
     } catch (error) {
-      console.warn('Failed to move paper', error);
+      console.warn('Failed to move papers', error);
       setToast('移动论文失败，请稍后重试');
       return false;
     }
@@ -1435,7 +1449,7 @@ export default function App() {
       onCreateFolder={handleCreateFolder}
       onRenameFolder={handleRenameFolder}
       onDeleteFolder={handleDeleteFolder}
-      onMovePaper={handleMovePaper}
+      onMovePapers={handleMovePapers}
       onOpenBatchImport={() => openBatchImport()}
       onOpenImportHistory={() => setImportHistoryOpen(true)}
     />
