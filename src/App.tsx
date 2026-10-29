@@ -1423,6 +1423,8 @@ export default function App() {
         setBatchOpen(false);
         setBatchSeedFiles([]);
       }}
+      onMinimize={() => setBatchOpen(false)}
+      onRestore={() => setBatchOpen(true)}
       onFinished={() => void refreshLibrary(false)}
       onOpenLibrary={() => {
         setBatchOpen(false);
@@ -1462,53 +1464,10 @@ export default function App() {
     />
   );
 
-  if (!paper) {
-    return (
-      <>
-        <Landing
-          loading={loading}
-          error={loadError}
-          papers={papers}
-          modelReady={modelReady}
-          modelLabel={modelStatusLabel}
-          onOpenLink={handleOpenLink}
-          onFile={(file) => void openLocalFile(file)}
-          onOpenBatchImport={() => openBatchImport()}
-          onOpenLibrary={handleOpenLibrary}
-          onOpenPaper={(record) => void handleOpenStoredPaper(record)}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onDismissError={() => setLoadError('')}
-        />
-        {settingsModal}
-        {libraryModal}
-        {batchModal}
-        {importHistoryModal}
-        {dragging && (
-          <div className="drag-overlay" aria-hidden="true">
-            <div className="drag-overlay-inner">
-              <div className="drag-file-icon">
-                <FileText size={30} />
-              </div>
-              <strong>松开以导入 PDF</strong>
-              <span>单个直接打开，多个进入批量导入</span>
-            </div>
-          </div>
-        )}
-        {toast && (
-          <div className="toast" role="status">
-            <AlertCircle size={16} />
-            <span>{toast}</span>
-            <button type="button" onClick={() => setToast('')} aria-label="关闭提示">
-              <X size={14} />
-            </button>
-          </div>
-        )}
-      </>
-    );
-  }
-
   return (
-    <div className="workspace-shell">
+    <>
+      {paper ? (
+        <div className="workspace-shell">
       <header className="workspace-header">
         <button type="button" className="workspace-logo" onClick={goHome} title="返回首页">
           <Logo compact />
@@ -1656,6 +1615,23 @@ export default function App() {
           </div>
         </div>
       )}
+        </div>
+      ) : (
+        <Landing
+          loading={loading}
+          error={loadError}
+          papers={papers}
+          modelReady={modelReady}
+          modelLabel={modelStatusLabel}
+          onOpenLink={handleOpenLink}
+          onFile={(file) => void openLocalFile(file)}
+          onOpenBatchImport={() => openBatchImport()}
+          onOpenLibrary={handleOpenLibrary}
+          onOpenPaper={(record) => void handleOpenStoredPaper(record)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onDismissError={() => setLoadError('')}
+        />
+      )}
 
       {settingsModal}
       {libraryModal}
@@ -1668,7 +1644,7 @@ export default function App() {
             <div className="drag-file-icon">
               <FileText size={30} />
             </div>
-            <strong>松开以导入新的 PDF</strong>
+            <strong>松开以导入 PDF</strong>
             <span>单个直接打开，多个进入批量导入</span>
           </div>
         </div>
@@ -1683,6 +1659,6 @@ export default function App() {
           </button>
         </div>
       )}
-    </div>
+    </>
   );
 }

@@ -9,6 +9,7 @@ import {
   Layers3,
   Link2,
   Loader2,
+  Minimize2,
   Upload,
   X,
 } from 'lucide-react';
@@ -27,6 +28,8 @@ interface BatchImportModalProps {
   folders: FolderRecord[];
   initialFiles?: File[];
   onClose: () => void;
+  onMinimize: () => void;
+  onRestore: () => void;
   onFinished: () => void;
   onOpenLibrary: () => void;
 }
@@ -61,6 +64,8 @@ export function BatchImportModal({
   folders,
   initialFiles = [],
   onClose,
+  onMinimize,
+  onRestore,
   onFinished,
   onOpenLibrary,
 }: BatchImportModalProps) {
@@ -72,12 +77,15 @@ export function BatchImportModal({
   const [txtNotice, setTxtNotice] = useState('');
   const [targetFolderId, setTargetFolderId] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [background, setBackground] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const txtRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
+    // Restoring a minimized/background run must not wipe its task queue.
+    if (background || phase === 'running') return;
     setPhase('setup');
     setLinkText('');
     setTasks([]);
@@ -115,6 +123,16 @@ export function BatchImportModal({
       document.body.style.overflow = previousOverflow;
     };
   }, [open, phase, onClose]);
+
+  useEffect(() => {
+    if (!background || phase !== 'running') return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [background, phase]);
 
   useEffect(
     () => () => {
@@ -408,6 +426,7 @@ export function BatchImportModal({
   };
 
   const reset = () => {
+    setBackground(false);
     setPhase('setup');
     setTasks([]);
     setLinkText('');
@@ -415,20 +434,94 @@ export function BatchImportModal({
     setError('');
   };
 
+  const minimizeToBackground = () => {
+    setBackground(true);
+    onMinimize();
+  };
+
+  const dismissBackground = () => {
+    setBackground(false);
+    onFinished();
+    onClose();
+  };
+
   const handleClose = () => {
     if (phase === 'running') {
       if (!window.confirm('停止导入并关闭？已完成的论文会保留在文库中。')) return;
       controllerRef.current?.abort();
     }
+    setBackground(false);
     onClose();
   };
 
   const openLibrary = () => {
+    setBackground(false);
     onFinished();
     onOpenLibrary();
   };
 
-  if (!open) return null;
+  if (!open) {
+    if (!background || tasks.length === 0) return null;
+    const running = phase === 'running';
+    const currentTask = tasks.find((task) => task.status === 'running');
+    return (
+      <div
+        className={`background-import ${running ? 'is-running' : 'is-done'} ${
+          !running && failed > 0 ? 'is-error' : ''
+        }`}
+        role="status"
+        aria-live="polite"
+      >
+        <span className="background-import-mark">
+          {running ? (
+            <Loader2 size={17} className="spin" />
+          ) : failed > 0 ? (
+            <AlertCircle size={17} />
+          ) : (
+            <CheckCircle2 size={17} />
+          )}
+        </span>
+        <div className="background-import-copy">
+          <strong>
+            {running
+              ? '正在后台导入'
+              : failed > 0
+                ? `后台导入完成，${failed} 项失败`
+                : '后台导入完成'}
+          </strong>
+          <span>
+            {running
+              ? currentTask
+                ? `${completed} / ${tasks.length} · ${currentTask.detail}`
+                : `已完成 ${completed} / ${tasks.length}`
+              : `成功 ${succeeded} 篇${cancelled > 0 ? ` · 取消 ${cancelled} 项` : ''}`}
+          </span>
+          {running && (
+            <span className="background-import-track">
+              <i style={{ width: `${Math.max(2, overallPercent)}%` }} />
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          className="background-import-open"
+          onClick={onRestore}
+        >
+          {running ? '查看进度' : '查看结果'}
+        </button>
+        {!running && (
+          <button
+            type="button"
+            className="background-import-close"
+            onClick={dismissBackground}
+            aria-label="关闭后台导入提示"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -690,7 +783,7 @@ export function BatchImportModal({
                     ? cancelled > 0
                       ? `另有 ${cancelled} 项已取消`
                       : '可以进入文库继续阅读'
-                    : '请保持页面打开，完成后会自动保存到文库'}
+                    : '可点「后台运行」继续浏览，完成后会自动保存到文库'}
                 </span>
               </div>
               <em>{overallPercent}%</em>
@@ -737,9 +830,19 @@ export function BatchImportModal({
               </span>
               <div>
                 {phase === 'running' ? (
-                  <button type="button" className="batch-cancel" onClick={stop}>
-                    停止导入
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="batch-cancel batch-background-action"
+                      onClick={minimizeToBackground}
+                    >
+                      <Minimize2 size={13} />
+                      后台运行
+                    </button>
+                    <button type="button" className="batch-cancel" onClick={stop}>
+                      停止导入
+                    </button>
+                  </>
                 ) : (
                   <>
                     <button type="button" className="batch-cancel" onClick={reset}>
