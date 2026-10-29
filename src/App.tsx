@@ -316,7 +316,19 @@ export default function App() {
     }
     savePdf2zhConfig(normalized);
     setPdf2zhConfig(normalized);
-    setToast('PDF 翻译服务配置已保存');
+    if (!hasUsableModel(config, serverConfig)) {
+      const nextChat: ModelConfig = {
+        ...config,
+        provider: 'deepseek',
+        baseUrl: normalized.apiUrl,
+        model: normalized.model,
+        apiKey: normalized.apiKey,
+        remember: config.remember,
+      };
+      saveConfig(nextChat);
+      setConfig(nextChat);
+    }
+    setToast('DeepSeek 配置已保存，可用于对话和 PDF 翻译');
   };
 
   const handleTranslatePdf = async () => {

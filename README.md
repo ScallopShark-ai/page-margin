@@ -8,6 +8,8 @@
 
 [一键部署](#一键部署) · [一键升级](#一键升级) · [更新日志](#更新日志) · [隐私与边界](#隐私与边界)
 
+![首次启动](docs/preview-first-run.png)
+
 ![首页](docs/preview-landing.png)
 
 ![工作区](docs/preview-workspace.png)

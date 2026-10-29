@@ -83,7 +83,8 @@ export function DeepSeekSetupModal({
         <h2 id="deepseek-setup-title">配置 DeepSeek API</h2>
         <p className="deepseek-setup-lead">
           海拉使用 DeepSeek 完成整篇 PDF 翻译。第一次使用必须先配置一个
-          DeepSeek API，之后会作为翻译的默认模型。
+          DeepSeek API，之后会作为翻译的默认模型；如果还没有对话模型，
+          这份配置也会作为默认对话模型。
         </p>
 
         <form onSubmit={submit}>
@@ -161,7 +162,7 @@ export function DeepSeekSetupModal({
           <div className="deepseek-setup-note">
             <LockKeyhole size={13} />
             <span>
-              Key 保存在当前浏览器，仅用于 PDF 全文翻译；本地运行时不会写入项目仓库。
+              Key 保存在当前浏览器，用于 PDF 全文翻译；尚未配置对话模型时也会作为默认对话模型。
             </span>
           </div>
 
