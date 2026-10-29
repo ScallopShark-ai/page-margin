@@ -10,7 +10,12 @@ import {
   paperStats,
   sanitizeMessages,
 } from './context.mjs';
-import { PROVIDER_IDS, providerDefaults, streamPaperCompletion } from './providers.mjs';
+import {
+  listProviderModels,
+  PROVIDER_IDS,
+  providerDefaults,
+  streamPaperCompletion,
+} from './providers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -108,6 +113,31 @@ app.get('/api/config', (_req, res) => {
     model: serverConfig.model,
     baseUrl: serverConfig.baseUrl,
   });
+});
+
+app.post('/api/models', async (req, res, next) => {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort();
+  });
+  try {
+    const { provider, apiKey, baseUrl } = resolveModelRequest(
+      req.body?.config ?? {},
+    );
+    const result = await listProviderModels({
+      provider,
+      apiKey,
+      baseUrl,
+      signal: controller.signal,
+    });
+    res.json({ models: result.models });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      if (!res.headersSent) res.status(499).end();
+      return;
+    }
+    next(error);
+  }
 });
 
 app.get('/api/arxiv/resolve', async (req, res, next) => {

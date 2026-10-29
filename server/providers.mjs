@@ -45,6 +45,202 @@ function anthropicEndpoint(baseUrl) {
   return `${base}/v1/messages`;
 }
 
+function modelsEndpoint(provider, baseUrl) {
+  let base = normalizeBase(baseUrl);
+  if (!base) throw new Error('缺少 API Base URL');
+
+  if (provider === 'anthropic') {
+    base = base.replace(/\/v1\/messages$/i, '').replace(/\/messages$/i, '');
+    if (/\/v1\/models$/i.test(base)) return base;
+    if (/\/v1$/i.test(base)) return `${base}/models`;
+    return `${base}/v1/models`;
+  }
+
+  base = base.replace(/\/chat\/completions$/i, '');
+  if (/\/models$/i.test(base)) return base;
+  if (provider === 'openai' && !/\/v\d+$/i.test(base)) {
+    return `${base}/v1/models`;
+  }
+  return `${base}/models`;
+}
+
+function normalizeModelList(payload) {
+  const raw = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.data)
+      ? payload.data
+      : Array.isArray(payload?.models)
+        ? payload.models
+        : Array.isArray(payload?.data?.models)
+          ? payload.data.models
+          : [];
+  const seen = new Set();
+  const models = [];
+  for (const item of raw) {
+    const id =
+      typeof item === 'string'
+        ? item.trim()
+        : String(
+            item?.id ?? item?.model ?? item?.slug ?? item?.name ?? '',
+          ).trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const name =
+      typeof item === 'object'
+        ? String(item?.display_name ?? item?.displayName ?? '').trim()
+        : '';
+    const ownedBy =
+      typeof item === 'object'
+        ? String(item?.owned_by ?? item?.ownedBy ?? item?.provider ?? '').trim()
+        : '';
+    models.push({
+      id,
+      ...(name && name !== id ? { name } : {}),
+      ...(ownedBy ? { ownedBy } : {}),
+    });
+  }
+  models.sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }));
+  return models;
+}
+
+function friendlyModelListMessage(status, upstreamBody) {
+  let upstream = '';
+  try {
+    const parsed = JSON.parse(upstreamBody);
+    upstream =
+      parsed?.error?.message ||
+      parsed?.message ||
+      parsed?.error ||
+      parsed?.detail ||
+      '';
+    if (typeof upstream !== 'string') upstream = JSON.stringify(upstream);
+  } catch {
+    upstream = upstreamBody;
+  }
+  upstream = String(upstream || '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 420);
+
+  const prefix =
+    status === 401 || status === 403
+      ? 'API Key 无效，或没有读取模型列表的权限'
+      : status === 404
+        ? '这个地址没有模型列表接口，请检查 Base URL'
+        : status === 429
+          ? '读取模型列表过于频繁或额度已用尽'
+          : status >= 500
+            ? '模型网关暂时不可用'
+            : '读取模型列表失败';
+  return `${prefix}（HTTP ${status}）${upstream ? `：${upstream}` : ''}`;
+}
+
+export async function listProviderModels({
+  provider,
+  apiKey,
+  baseUrl,
+  signal,
+}) {
+  if (!PROVIDER_IDS.includes(provider)) {
+    const error = new Error('未知的模型服务商');
+    error.status = 400;
+    throw error;
+  }
+  const defaults = providerDefaults(provider);
+  const effectiveBase = baseUrl?.trim() || defaults.baseUrl;
+  if (!effectiveBase) {
+    const error = new Error('请填写 API Base URL');
+    error.status = 400;
+    throw error;
+  }
+
+  let nextUrl = modelsEndpoint(provider, effectiveBase);
+  if (provider === 'anthropic') {
+    const url = new URL(nextUrl);
+    url.searchParams.set('limit', '1000');
+    nextUrl = url.toString();
+  }
+
+  const headers = {
+    accept: 'application/json',
+  };
+  if (provider === 'anthropic') {
+    headers['x-api-key'] = apiKey || '';
+    headers['anthropic-version'] = '2023-06-01';
+  } else if (apiKey) {
+    headers.authorization = `Bearer ${apiKey}`;
+  }
+
+  const allModels = [];
+  const seen = new Set();
+  let endpoint = nextUrl;
+
+  for (let page = 0; page < 5 && nextUrl; page += 1) {
+    let response;
+    try {
+      response = await fetch(nextUrl, {
+        headers,
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(20000)])
+          : AbortSignal.timeout(20000),
+      });
+    } catch (caught) {
+      if (caught?.name === 'AbortError') throw caught;
+      if (caught?.name === 'TimeoutError') {
+        const error = new Error('读取模型列表超时，请稍后重试');
+        error.status = 504;
+        throw error;
+      }
+      const error = new Error(
+        `无法连接模型网关：${caught instanceof Error ? caught.message : '网络错误'}`,
+      );
+      error.status = 502;
+      throw error;
+    }
+
+    const bodyText = await response.text().catch(() => '');
+    if (!response.ok) {
+      const error = new Error(
+        friendlyModelListMessage(response.status, bodyText),
+      );
+      error.status =
+        [400, 401, 403, 404, 429].includes(response.status)
+          ? response.status
+          : 502;
+      error.upstreamStatus = response.status;
+      throw error;
+    }
+
+    let payload;
+    try {
+      payload = JSON.parse(bodyText);
+    } catch {
+      const error = new Error('模型列表返回的不是有效 JSON，请检查 Base URL');
+      error.status = 502;
+      throw error;
+    }
+
+    const rows = normalizeModelList(payload);
+    for (const model of rows) {
+      if (seen.has(model.id)) continue;
+      seen.add(model.id);
+      allModels.push(model);
+    }
+
+    if (provider === 'anthropic' && payload?.has_more && payload?.last_id) {
+      const url = new URL(endpoint);
+      url.searchParams.set('after_id', String(payload.last_id));
+      nextUrl = url.toString();
+      continue;
+    }
+    break;
+  }
+
+  allModels.sort((a, b) =>
+    a.id.localeCompare(b.id, 'en', { numeric: true }),
+  );
+  return { models: allModels, endpoint };
+}
+
 function friendlyUpstreamMessage(status, upstreamBody) {
   let upstream = '';
   try {

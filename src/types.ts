@@ -17,6 +17,12 @@ export interface ServerConfig {
   baseUrl: string;
 }
 
+export interface ModelListItem {
+  id: string;
+  name?: string;
+  ownedBy?: string;
+}
+
 export interface PaperMeta {
   source: 'arxiv' | 'local' | 'web';
   title: string;

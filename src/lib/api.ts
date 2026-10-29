@@ -2,6 +2,7 @@ import type {
   ArcherResult,
   ChatMessage,
   ModelConfig,
+  ModelListItem,
   PaperMeta,
   PageText,
   ServerConfig,
@@ -54,6 +55,27 @@ export async function fetchServerConfig(): Promise<ServerConfig> {
   const response = await fetch('/api/config', { headers: { Accept: 'application/json' } });
   if (!response.ok) throw await errorFromResponse(response);
   return (await response.json()) as ServerConfig;
+}
+
+export async function fetchModelList(
+  config: Pick<ModelConfig, 'provider' | 'apiKey' | 'baseUrl'>,
+  signal?: AbortSignal,
+): Promise<ModelListItem[]> {
+  const response = await fetch('/api/models', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      config: {
+        provider: config.provider,
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+      },
+    }),
+    signal,
+  });
+  if (!response.ok) throw await errorFromResponse(response);
+  const data = (await response.json()) as { models?: ModelListItem[] };
+  return Array.isArray(data.models) ? data.models : [];
 }
 
 export interface ChatStreamEvent {

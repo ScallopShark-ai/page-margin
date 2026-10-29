@@ -1,17 +1,37 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
+  AlertCircle,
+  Bookmark,
   Check,
   ExternalLink,
   Eye,
   EyeOff,
   KeyRound,
+  Loader2,
   LockKeyhole,
+  Plus,
+  RefreshCw,
+  Search,
   Server,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react';
+import { fetchModelList } from '../lib/api';
 import { PROVIDERS } from '../lib/config';
-import type { ModelConfig, ProviderId, ServerConfig } from '../types';
+import {
+  loadSavedModels,
+  profileToConfig,
+  removeSavedModel,
+  upsertSavedModel,
+  type SavedModelProfile,
+} from '../lib/modelProfiles';
+import type {
+  ModelConfig,
+  ModelListItem,
+  ProviderId,
+  ServerConfig,
+} from '../types';
 
 interface SettingsModalProps {
   open: boolean;
@@ -30,10 +50,25 @@ const KEY_LINKS: Record<ProviderId, string | null> = {
   custom: null,
 };
 
+function providerMonogram(id: ProviderId): string {
+  if (id === 'deepseek') return 'DS';
+  if (id === 'openai') return 'OA';
+  if (id === 'anthropic') return 'AN';
+  return '··';
+}
+
 export function SettingsModal({ open, config, server, onClose, onSave }: SettingsModalProps) {
   const [draft, setDraft] = useState<ModelConfig>(config);
   const [showKey, setShowKey] = useState(false);
   const [error, setError] = useState('');
+  const [modelOptions, setModelOptions] = useState<ModelListItem[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState('');
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelSearch, setModelSearch] = useState('');
+  const [profiles, setProfiles] = useState<SavedModelProfile[]>([]);
+  const [savedNotice, setSavedNotice] = useState('');
+  const modelsAbortRef = useRef<AbortController | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -41,6 +76,8 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
     setDraft(config);
     setShowKey(false);
     setError('');
+    setProfiles(loadSavedModels());
+    setSavedNotice('');
     const timer = window.setTimeout(() => {
       dialogRef.current?.querySelector<HTMLInputElement>('input')?.focus();
     }, 80);
@@ -61,7 +98,73 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
     };
   }, [open, onClose]);
 
+  useEffect(() => {
+    modelsAbortRef.current?.abort();
+    modelsAbortRef.current = null;
+    setModelsLoading(false);
+    setModelOptions([]);
+    setModelsError('');
+    setModelPickerOpen(false);
+    setModelSearch('');
+  }, [open, draft.provider, draft.baseUrl, draft.apiKey]);
+
+  useEffect(() => {
+    if (!savedNotice) return;
+    const timer = window.setTimeout(() => setSavedNotice(''), 2600);
+    return () => window.clearTimeout(timer);
+  }, [savedNotice]);
+
   if (!open) return null;
+
+  const loadModels = async () => {
+    const baseUrl = draft.baseUrl.trim() || PROVIDERS[draft.provider].baseUrl;
+    setModelPickerOpen(true);
+    setModelsError('');
+    setModelSearch('');
+    if (!baseUrl) {
+      setModelsError('请先填写 API Base URL');
+      return;
+    }
+    try {
+      const parsed = new URL(baseUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('bad protocol');
+      }
+    } catch {
+      setModelsError('Base URL 需要是完整的 http(s) 地址');
+      return;
+    }
+
+    modelsAbortRef.current?.abort();
+    const controller = new AbortController();
+    modelsAbortRef.current = controller;
+    setModelsLoading(true);
+    try {
+      const options = await fetchModelList(
+        {
+          provider: draft.provider,
+          apiKey: draft.apiKey.trim(),
+          baseUrl,
+        },
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      setModelOptions(options);
+      if (options.length === 0) {
+        setModelsError('接口返回了 0 个模型，请检查这个网关是否开放 /models');
+      }
+    } catch (caught) {
+      if (controller.signal.aborted) return;
+      setModelsError(
+        caught instanceof Error ? caught.message : '读取模型列表失败',
+      );
+    } finally {
+      if (modelsAbortRef.current === controller) {
+        modelsAbortRef.current = null;
+        setModelsLoading(false);
+      }
+    }
+  };
 
   const chooseProvider = (provider: ProviderId) => {
     setDraft((current) => ({
@@ -74,8 +177,7 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
     setError('');
   };
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
+  const normalizeDraft = (): ModelConfig | null => {
     const next: ModelConfig = {
       ...draft,
       apiKey: draft.apiKey.trim(),
@@ -84,7 +186,7 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
     };
     if (!next.model) {
       setError('请填写模型名称');
-      return;
+      return null;
     }
     if (next.provider !== 'custom' && !next.baseUrl) {
       next.baseUrl = PROVIDERS[next.provider].baseUrl;
@@ -95,13 +197,39 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
         if (!['http:', 'https:'].includes(url.protocol)) throw new Error('bad protocol');
       } catch {
         setError('Base URL 需要是完整的 http(s) 地址');
-        return;
+        return null;
       }
     } else if (next.provider === 'custom') {
       setError('请填写 API Base URL');
-      return;
+      return null;
     }
+    return next;
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const next = normalizeDraft();
+    if (!next) return;
+    setProfiles(upsertSavedModel(profiles, next));
     onSave(next);
+  };
+
+  const saveCurrentProfile = () => {
+    const next = normalizeDraft();
+    if (!next) return;
+    setProfiles(upsertSavedModel(profiles, next));
+    setSavedNotice('已保存当前模型');
+    setError('');
+  };
+
+  const useSavedProfile = (profile: SavedModelProfile) => {
+    onSave(profileToConfig(profile, draft.remember));
+  };
+
+  const deleteSavedProfile = (profile: SavedModelProfile) => {
+    if (!window.confirm(`删除常用模型「${profile.name}」？`)) return;
+    setProfiles(removeSavedModel(profiles, profile.id));
+    setSavedNotice('已删除常用模型');
   };
 
   const provider = PROVIDERS[draft.provider];
@@ -110,6 +238,14 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
     Boolean(server?.serverConfigured) &&
     server?.provider === draft.provider &&
     !draft.apiKey.trim();
+  const normalizedSearch = modelSearch.trim().toLowerCase();
+  const filteredModels = normalizedSearch
+    ? modelOptions.filter((model) =>
+        `${model.id} ${model.name ?? ''} ${model.ownedBy ?? ''}`
+          .toLowerCase()
+          .includes(normalizedSearch),
+      )
+    : modelOptions;
 
   return (
     <div
@@ -150,6 +286,74 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
         )}
 
         <form onSubmit={submit} className="settings-form">
+          <section className="saved-models" aria-label="常用模型">
+            <div className="saved-models-head">
+              <span>
+                <Bookmark size={13} strokeWidth={1.8} />
+                常用模型
+                {profiles.length > 0 && <em>{profiles.length}</em>}
+              </span>
+              <button
+                type="button"
+                className="saved-save-button"
+                onClick={saveCurrentProfile}
+              >
+                <Plus size={12} />
+                保存当前配置
+              </button>
+            </div>
+
+            {savedNotice && (
+              <p className="saved-notice" role="status">
+                {savedNotice}
+              </p>
+            )}
+
+            {profiles.length === 0 ? (
+              <p className="saved-models-empty">
+                配置好模型后点「保存当前配置」，下次可以直接使用，不用重新填写 Key 和地址。
+              </p>
+            ) : (
+              <div className="saved-model-list">
+                {profiles.map((profile) => (
+                  <div className="saved-model-row" key={profile.id}>
+                    <span className="saved-model-monogram">
+                      {providerMonogram(profile.provider)}
+                    </span>
+                    <div className="saved-model-copy">
+                      <strong>{profile.name}</strong>
+                      <span>
+                        {profile.baseUrl} ·{' '}
+                        {profile.apiKey ? '已保存 Key' : '无 Key / 服务器 Key'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="saved-use-button"
+                      onClick={() => useSavedProfile(profile)}
+                    >
+                      使用
+                    </button>
+                    <button
+                      type="button"
+                      className="saved-delete-button"
+                      onClick={() => deleteSavedProfile(profile)}
+                      aria-label={`删除常用模型 ${profile.name}`}
+                      title="删除常用模型"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <p className="saved-models-note">
+              <KeyRound size={11} />
+              常用模型包含 API Key，只保存在当前浏览器。
+            </p>
+          </section>
+
           <fieldset className="provider-fieldset">
             <legend>服务商</legend>
             <div className="provider-grid">
@@ -161,7 +365,7 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
                   onClick={() => chooseProvider(id)}
                 >
                   <span className="provider-monogram">
-                    {id === 'deepseek' ? 'DS' : id === 'openai' ? 'OA' : id === 'anthropic' ? 'AN' : '··'}
+                    {providerMonogram(id)}
                   </span>
                   <span>{PROVIDERS[id].label}</span>
                   {draft.provider === id && <Check size={14} className="provider-check" />}
@@ -172,8 +376,26 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
           </fieldset>
 
           <div className="field-row">
-            <label className="settings-field">
-              <span>模型名称</span>
+            <div className="settings-field">
+              <span className="model-field-head">
+                模型名称
+                <button
+                  type="button"
+                  className="model-fetch-button"
+                  onClick={() => void loadModels()}
+                  disabled={modelsLoading}
+                  aria-expanded={modelPickerOpen}
+                  aria-controls="model-picker"
+                  title="从 Base URL 读取可用模型"
+                >
+                  {modelsLoading ? (
+                    <Loader2 size={11} className="spin" />
+                  ) : (
+                    <RefreshCw size={11} />
+                  )}
+                  {modelsLoading ? '读取中' : modelOptions.length > 0 ? '刷新' : '获取列表'}
+                </button>
+              </span>
               <input
                 value={draft.model}
                 onChange={(event) =>
@@ -181,8 +403,9 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
                 }
                 placeholder={provider.model}
                 spellCheck={false}
+                aria-label="模型名称"
               />
-            </label>
+            </div>
             <label className="settings-field">
               <span>API Base URL</span>
               <input
@@ -195,6 +418,114 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
               />
             </label>
           </div>
+
+          {modelPickerOpen && (
+            <div className="model-picker" id="model-picker" aria-live="polite">
+              <div className="model-picker-head">
+                <div>
+                  <strong>可用模型</strong>
+                  <span>
+                    {modelsLoading
+                      ? '正在从接口读取…'
+                      : `${modelOptions.length} 个模型`}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="model-picker-close"
+                  onClick={() => setModelPickerOpen(false)}
+                  aria-label="收起模型列表"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              {modelsLoading ? (
+                <div className="model-picker-state">
+                  <Loader2 size={15} className="spin" />
+                  正在连接模型网关…
+                </div>
+              ) : modelsError ? (
+                <div className="model-picker-state is-error">
+                  <AlertCircle size={15} />
+                  <div>
+                    <span>{modelsError}</span>
+                    <button type="button" onClick={() => void loadModels()}>
+                      重试
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {modelOptions.length > 5 && (
+                    <label className="model-picker-search">
+                      <Search size={13} />
+                      <input
+                        value={modelSearch}
+                        onChange={(event) => setModelSearch(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Enter') return;
+                          event.preventDefault();
+                          const first = filteredModels[0];
+                          if (!first) return;
+                          setDraft((current) => ({
+                            ...current,
+                            model: first.id,
+                          }));
+                          setModelPickerOpen(false);
+                          setError('');
+                        }}
+                        placeholder="搜索模型名称"
+                        spellCheck={false}
+                        autoFocus
+                        aria-label="搜索模型"
+                      />
+                    </label>
+                  )}
+                  {filteredModels.length === 0 ? (
+                    <div className="model-picker-state">
+                      没有匹配的模型
+                    </div>
+                  ) : (
+                    <div className="model-picker-list">
+                      {filteredModels.map((option) => {
+                        const selected = draft.model === option.id;
+                        return (
+                          <button
+                            type="button"
+                            key={option.id}
+                            className={`model-option ${selected ? 'is-active' : ''}`}
+                            onClick={() => {
+                              setDraft((current) => ({
+                                ...current,
+                                model: option.id,
+                              }));
+                              setModelPickerOpen(false);
+                              setError('');
+                            }}
+                            title={option.name || option.id}
+                          >
+                            <span className="model-option-text">
+                              <strong>{option.id}</strong>
+                              {option.name && <small>{option.name}</small>}
+                            </span>
+                            {option.ownedBy && (
+                              <em className="model-option-owner">{option.ownedBy}</em>
+                            )}
+                            {selected && <Check size={13} />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+
+              <p className="model-picker-note">
+                列表来自当前 Base URL 的模型接口；选择后仍可手动修改模型名称。
+              </p>
+            </div>
+          )}
 
           <label className="settings-field">
             <span className="label-with-icon">
