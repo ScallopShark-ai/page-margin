@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "concurrently -k -n server,web -c green,cyan \"node --watch server/index.mjs\" \"vite\"",
     "build": "tsc --noEmit && vite build",
-    "start": "node server/index.mjs",
+    "start": "node server/start.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

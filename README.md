@@ -37,7 +37,7 @@
 
 ## 快速开始
 
-要求 Node.js **22+**（开发时使用 Node 25 验证）。
+要求 Node.js **22+**（开发时使用 Node 25 验证；自动读取代理需要 Node.js 24+）。
 
 ```bash
 npm install
@@ -46,6 +46,18 @@ npm start
 ```
 
 打开 **http://127.0.0.1:8787**。
+
+### 通过本地代理访问 OpenAI
+
+Windows 的系统代理不会自动被 Node.js 继承；浏览器能访问 OpenAI，不代表本地服务也能访问。把代理写进项目根目录的 `.env`：
+
+```env
+HTTPS_PROXY=http://127.0.0.1:6518
+HTTP_PROXY=http://127.0.0.1:6518
+NO_PROXY=localhost,127.0.0.1,::1
+```
+
+`npm start` 会先读取 `.env`，再通过 `server/start.mjs` 把代理环境传给 Node。Node.js 24+ 会启用内置的 `--use-env-proxy`；Node.js 22 只能直连模型网关。代理端口请换成你本机代理软件的实际端口。
 
 开发模式（Vite 前端 + 独立 API 服务）：
 
@@ -171,11 +183,12 @@ src/
     modelProfiles.ts         常用模型配置的保存、切换与删除
     library.ts               IndexedDB 论文 / PDF / 对话存储
 server/
+  start.mjs                  读取 .env、代理环境后启动服务
   index.mjs                  Express API、静态站点、SSE
   arxiv.mjs                  arXiv 校验、元数据、PDF 缓存
   pdf-proxy.mjs              任意 PDF 直链下载、SSRF 防护
   context.mjs                文本分块、检索、提示词
-  providers.mjs              OpenAI 兼容 / Anthropic 流式适配
+  providers.mjs              OpenAI 兼容 / Anthropic 流式适配、模型列表
 public/pdfjs/                PDF.js 的 cmaps、字体、wasm 资源
 ```
 
@@ -213,6 +226,10 @@ public/pdfjs/                PDF.js 的 cmaps、字体、wasm 资源
 **「获取列表」失败或列表为空？**
 
 先确认 Base URL 能在浏览器外访问，并且服务商开放了 `/models`。部分网关只提供 Chat Completions、不允许列出模型，或需要额外的组织/项目请求头；这种情况直接手动填写模型名称即可。OpenAI 兼容网关通常要求 Base URL 带 `/v1`。
+
+**提示「无法连接模型网关：fetch failed」？**
+
+这是本地服务的出站网络问题，不是模型名错误。官方 OpenAI 在当前网络通常需要代理：浏览器的系统代理不会自动传给 Node.js。按上面的「通过本地代理访问 OpenAI」在 `.env` 配置代理后重新执行 `npm start`。可以用一个无效 Key 测试 `/api/models`：如果返回 401（而不是超时/502），说明网络已经连通，只需换成有效 Key。
 
 **回答太长或模型上下文超限？**  
 可在 `.env` 调整 `MAX_CONTEXT_CHARS`（默认 46000，范围 9000–120000）。数值越小，发送的片段越少。
