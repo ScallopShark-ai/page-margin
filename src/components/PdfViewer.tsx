@@ -14,6 +14,7 @@ import {
   ChevronRight,
   ExternalLink,
   Languages,
+  Loader2,
   Maximize2,
   Minus,
   Plus,
@@ -24,6 +25,14 @@ import { TranslationPopover } from './TranslationPopover';
 interface PdfViewerProps {
   doc: PDFDocumentProxy;
   pdfHref: string;
+  translatedDoc: PDFDocumentProxy | null;
+  translatedHref: string | null;
+  showTranslated: boolean;
+  translationStatus: 'idle' | 'loading' | 'ready' | 'error';
+  translationProgress: number;
+  translationError: string;
+  onTranslatePdf: () => void;
+  onShowTranslation: (show: boolean) => void;
   jumpRequest: JumpRequest | null;
   onPageChange: (page: number) => void;
   modelReady: boolean;
@@ -205,6 +214,14 @@ function PageSlot({
 export function PdfViewer({
   doc,
   pdfHref,
+  translatedDoc,
+  translatedHref,
+  showTranslated,
+  translationStatus,
+  translationProgress,
+  translationError,
+  onTranslatePdf,
+  onShowTranslation,
   jumpRequest,
   onPageChange,
   modelReady,
@@ -213,6 +230,10 @@ export function PdfViewer({
   onOpenSettings,
   getPageContext,
 }: PdfViewerProps) {
+  const activeDoc = showTranslated && translatedDoc ? translatedDoc : doc;
+  const activeHref =
+    showTranslated && translatedDoc && translatedHref ? translatedHref : pdfHref;
+  const pendingPageRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [sizes, setSizes] = useState<PageSize[]>([]);
@@ -313,7 +334,7 @@ export function PdfViewer({
 
   useEffect(() => {
     setSelectionPopup(null);
-  }, [doc]);
+  }, [activeDoc]);
 
   const baseScale = useMemo(() => {
     if (!containerWidth || sizes.length === 0) return 1;
@@ -322,7 +343,7 @@ export function PdfViewer({
     return Math.max(0.32, Math.min(2.4, fit));
   }, [containerWidth, sizes]);
 
-  const totalPages = doc.numPages;
+  const totalPages = activeDoc.numPages;
   const scale = baseScale * zoom;
 
   useEffect(() => {
@@ -342,7 +363,7 @@ export function PdfViewer({
       const next: PageSize[] = [];
       for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
         try {
-          const page = await doc.getPage(pageNumber);
+          const page = await activeDoc.getPage(pageNumber);
           const viewport = page.getViewport({ scale: 1 });
           next.push({ width: viewport.width, height: viewport.height });
           page.cleanup();
@@ -355,9 +376,10 @@ export function PdfViewer({
     return () => {
       cancelled = true;
     };
-  }, [doc, totalPages]);
+  }, [activeDoc, totalPages]);
 
   useEffect(() => {
+    // A genuinely new paper resets the reader; a language switch keeps place.
     setCurrentPage(1);
     setPageInput('1');
     currentPageRef.current = 1;
@@ -366,6 +388,34 @@ export function PdfViewer({
     appliedJumpRef.current = null;
     scrollRef.current?.scrollTo({ top: 0 });
   }, [doc]);
+
+  useEffect(() => {
+    const target = Math.max(1, Math.min(totalPages, currentPageRef.current));
+    pendingPageRef.current = target;
+    setCurrentPage(target);
+    setPageInput(String(target));
+    currentPageRef.current = target;
+    onPageChangeRef.current(target);
+    setHighlightPage(null);
+  }, [activeDoc, totalPages]);
+
+  useEffect(() => {
+    if (
+      pendingPageRef.current === null ||
+      sizes.length === 0 ||
+      sizes.length !== totalPages
+    ) {
+      return;
+    }
+    const page = Math.min(totalPages, pendingPageRef.current);
+    pendingPageRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      const root = scrollRef.current;
+      const slot = root?.querySelector<HTMLElement>(`[data-page="${page}"]`);
+      if (slot) root?.scrollTo({ top: Math.max(0, slot.offsetTop - 66) });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [sizes, totalPages]);
 
   const updateCurrentPage = useCallback(() => {
     const root = scrollRef.current;
@@ -527,14 +577,64 @@ export function PdfViewer({
 
         <a
           className="icon-button toolbar-link"
-          href={pdfHref}
+          href={activeHref}
           target="_blank"
           rel="noreferrer"
-          aria-label="在新窗口打开原始 PDF"
-          title="打开原始 PDF"
+          aria-label={showTranslated ? '在新窗口打开中文 PDF' : '在新窗口打开原始 PDF'}
+          title={showTranslated ? '打开中文 PDF' : '打开原始 PDF'}
         >
           <ExternalLink size={16} />
         </a>
+
+        <span className="toolbar-divider" aria-hidden="true" />
+
+        {translationStatus === 'ready' && translatedDoc ? (
+          <div className="pdf-lang-switch" role="group" aria-label="PDF 语言">
+            <button
+              type="button"
+              className={!showTranslated ? 'is-active' : ''}
+              onClick={() => onShowTranslation(false)}
+              aria-pressed={!showTranslated}
+            >
+              EN
+            </button>
+            <button
+              type="button"
+              className={showTranslated ? 'is-active' : ''}
+              onClick={() => onShowTranslation(true)}
+              aria-pressed={showTranslated}
+            >
+              中文
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className={`pdf-translate-button ${
+              translationStatus === 'error' ? 'is-error' : ''
+            }`}
+            onClick={onTranslatePdf}
+            disabled={translationStatus === 'loading'}
+            title={
+              translationStatus === 'error'
+                ? translationError || 'PDF 翻译失败，点击重试'
+                : '翻译整篇 PDF，并在阅读器中切换中英文'
+            }
+          >
+            {translationStatus === 'loading' ? (
+              <Loader2 size={14} className="spin" />
+            ) : (
+              <Languages size={14} />
+            )}
+            <span>
+              {translationStatus === 'loading'
+                ? `翻译中 ${translationProgress}%`
+                : translationStatus === 'error'
+                  ? '重试翻译'
+                  : '翻译 PDF'}
+            </span>
+          </button>
+        )}
 
         <span className="toolbar-divider" aria-hidden="true" />
 
@@ -555,7 +655,7 @@ export function PdfViewer({
         ref={scrollRef}
         className="pdf-scroll"
         onScroll={handleScroll}
-        aria-label="论文 PDF 原文"
+        aria-label={showTranslated ? '论文 PDF 中文翻译' : '论文 PDF 原文'}
       >
         {isLoadingLayout ? (
           <div className="pdf-layout-loading">
@@ -567,7 +667,7 @@ export function PdfViewer({
             {sizes.map((size, index) => (
               <PageSlot
                 key={index + 1}
-                doc={doc}
+                doc={activeDoc}
                 pageNumber={index + 1}
                 size={size}
                 scale={scale}

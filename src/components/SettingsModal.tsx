@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  Languages,
   Loader2,
   LockKeyhole,
   Plus,
@@ -32,13 +33,16 @@ import type {
   ProviderId,
   ServerConfig,
 } from '../types';
+import type { Pdf2zhConfig, Pdf2zhEngine } from '../lib/pdfTranslation';
 
 interface SettingsModalProps {
   open: boolean;
   config: ModelConfig;
   server: ServerConfig | null;
+  pdf2zhConfig: Pdf2zhConfig;
   onClose: () => void;
   onSave: (config: ModelConfig) => void;
+  onSavePdf2zh: (config: Pdf2zhConfig) => void;
 }
 
 const PROVIDER_ORDER: ProviderId[] = ['deepseek', 'openai', 'anthropic', 'custom'];
@@ -57,8 +61,17 @@ function providerMonogram(id: ProviderId): string {
   return '··';
 }
 
-export function SettingsModal({ open, config, server, onClose, onSave }: SettingsModalProps) {
+export function SettingsModal({
+  open,
+  config,
+  server,
+  pdf2zhConfig,
+  onClose,
+  onSave,
+  onSavePdf2zh,
+}: SettingsModalProps) {
   const [draft, setDraft] = useState<ModelConfig>(config);
+  const [pdf2zhDraft, setPdf2zhDraft] = useState<Pdf2zhConfig>(pdf2zhConfig);
   const [showKey, setShowKey] = useState(false);
   const [error, setError] = useState('');
   const [modelOptions, setModelOptions] = useState<ModelListItem[]>([]);
@@ -74,6 +87,7 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
   useEffect(() => {
     if (!open) return;
     setDraft(config);
+    setPdf2zhDraft(pdf2zhConfig);
     setShowKey(false);
     setError('');
     setProfiles(loadSavedModels());
@@ -82,7 +96,7 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
       dialogRef.current?.querySelector<HTMLInputElement>('input')?.focus();
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [open, config]);
+  }, [open, config, pdf2zhConfig]);
 
   useEffect(() => {
     if (!open) return;
@@ -208,9 +222,24 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    const nextPdf2zh: Pdf2zhConfig = {
+      baseUrl: pdf2zhDraft.baseUrl.trim().replace(/\/+$/, ''),
+      engine: pdf2zhDraft.engine,
+      service: pdf2zhDraft.service.trim(),
+    };
+    if (nextPdf2zh.baseUrl) {
+      try {
+        const url = new URL(nextPdf2zh.baseUrl);
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error('bad protocol');
+      } catch {
+        setError('PDF 翻译服务地址需要是完整的 http(s) 地址');
+        return;
+      }
+    }
     const next = normalizeDraft();
     if (!next) return;
     setProfiles(upsertSavedModel(profiles, next));
+    onSavePdf2zh(nextPdf2zh);
     onSave(next);
   };
 
@@ -590,6 +619,74 @@ export function SettingsModal({ open, config, server, onClose, onSave }: Setting
               </span>
             </div>
           )}
+
+          <section className="settings-pdf2zh" aria-label="PDF 全文翻译">
+            <div className="settings-pdf2zh-head">
+              <span>
+                <Languages size={14} />
+                PDF 全文翻译
+              </span>
+              <em>可选</em>
+            </div>
+            <p>
+              连接本机的 zotero-pdf2zh 服务。首次在阅读器点击「翻译 PDF」时，
+              会生成中文单语 PDF，并在原阅读器中切换显示。
+            </p>
+            <label className="settings-field">
+              服务地址
+              <input
+                value={pdf2zhDraft.baseUrl}
+                onChange={(event) =>
+                  setPdf2zhDraft((current) => ({
+                    ...current,
+                    baseUrl: event.target.value,
+                  }))
+                }
+                placeholder="http://127.0.0.1:8890"
+                spellCheck={false}
+                aria-label="PDF 翻译服务地址"
+              />
+            </label>
+            <div className="settings-pdf2zh-grid">
+              <label className="settings-field">
+                翻译引擎
+                <select
+                  value={pdf2zhDraft.engine}
+                  onChange={(event) =>
+                    setPdf2zhDraft((current) => ({
+                      ...current,
+                      engine: event.target.value as Pdf2zhEngine,
+                    }))
+                  }
+                  aria-label="PDF 翻译引擎"
+                >
+                  <option value="pdf2zh_next">pdf2zh_next / BabelDOC</option>
+                  <option value="pdf2zh">pdf2zh 1.x</option>
+                </select>
+              </label>
+              <label className="settings-field">
+                翻译服务
+                <input
+                  value={pdf2zhDraft.service}
+                  onChange={(event) =>
+                    setPdf2zhDraft((current) => ({
+                      ...current,
+                      service: event.target.value,
+                    }))
+                  }
+                  placeholder={
+                    pdf2zhDraft.engine === 'pdf2zh' ? 'bing' : 'siliconflowfree'
+                  }
+                  spellCheck={false}
+                  aria-label="PDF 翻译服务"
+                />
+              </label>
+            </div>
+            <p className="settings-pdf2zh-hint">
+              服务名称需与 pdf2zh 服务端配置一致，例如 openai、deepseek、bing。
+              这里只生成中文单语 PDF，不额外显示双语文件。
+            </p>
+          </section>
 
           {error && <p className="settings-error">{error}</p>}
 

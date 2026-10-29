@@ -7972,6 +7972,160 @@ body.is-resizing * {
   }
 }
 
+/* PDF translation */
+
+.pdf-translate-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 28px;
+  max-width: 118px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.pdf-translate-button:hover:not(:disabled) {
+  background: rgba(32, 30, 25, 0.05);
+  color: var(--ink-soft);
+}
+
+.pdf-translate-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.pdf-translate-button.is-error {
+  color: var(--accent-dark);
+}
+
+.pdf-lang-switch {
+  display: flex;
+  align-items: center;
+  padding: 1px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(32, 30, 25, 0.035);
+}
+
+.pdf-lang-switch button {
+  height: 24px;
+  min-width: 27px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 8.5px;
+  line-height: 1;
+}
+
+.pdf-lang-switch button:hover {
+  color: var(--ink-soft);
+}
+
+.pdf-lang-switch button.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.settings-pdf2zh {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-pdf2zh-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.settings-pdf2zh-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.settings-pdf2zh-head > em {
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 8px;
+  font-style: normal;
+}
+
+.settings-pdf2zh > p {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 9.5px;
+  line-height: 1.6;
+}
+
+.settings-pdf2zh-grid {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 10px;
+}
+
+.settings-pdf2zh .settings-field {
+  margin-top: 10px;
+}
+
+.settings-pdf2zh .settings-field select {
+  width: 100%;
+  height: 38px;
+  padding: 0 30px 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+  font-size: 11px;
+  outline: 0;
+}
+
+.settings-pdf2zh .settings-field select:focus {
+  border-color: rgba(220, 89, 55, 0.55);
+}
+
+.settings-pdf2zh .settings-pdf2zh-hint {
+  margin-bottom: 0;
+  font-size: 8.5px;
+}
+
+@media (max-width: 680px) {
+  .pdf-translate-button {
+    width: 28px;
+    max-width: 28px;
+    padding: 0;
+  }
+
+  .pdf-translate-button span {
+    display: none;
+  }
+
+  .pdf-lang-switch button {
+    min-width: 25px;
+    padding: 0 4px;
+    font-size: 8px;
+  }
+
+  .settings-pdf2zh-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

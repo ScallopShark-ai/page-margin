@@ -15,6 +15,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
   ChatMessage,
   ConversationThread,
@@ -59,7 +60,9 @@ import {
   deletePaper as deleteStoredPaper,
   deleteThread as deleteStoredThread,
   getPaperBundle,
+  getPaperContent,
   getPaperRecord,
+  getTranslatedPdf,
   isLibrarySupported,
   listFolders,
   listPapers,
@@ -69,6 +72,7 @@ import {
   renameFolder as renameStoredFolder,
   savePaper,
   saveThread,
+  saveTranslatedPdf,
   threadTitleFromQuestion,
   updatePaper,
 } from './lib/library';
@@ -81,8 +85,19 @@ import {
   localPaperId,
   webPaperId,
 } from './lib/paperId';
+import {
+  fetchPdf2zhFile,
+  loadPdf2zhConfig,
+  normalizePdf2zhConfig,
+  pickPdf2zhMonoFile,
+  savePdf2zhConfig,
+  submitPdf2zh,
+  waitForPdf2zhResult,
+  type Pdf2zhConfig,
+} from './lib/pdfTranslation';
 
 type MobileTab = 'paper' | 'chat';
+type TranslationStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 interface RestoredThreads {
   threads: ConversationThread[];
@@ -129,6 +144,20 @@ export default function App() {
   configRef.current = config;
   const [serverConfig, setServerConfig] = useState<ServerConfig | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pdf2zhConfig, setPdf2zhConfig] = useState<Pdf2zhConfig>(() =>
+    loadPdf2zhConfig(),
+  );
+  const [translatedDoc, setTranslatedDoc] = useState<PDFDocumentProxy | null>(null);
+  const translatedDocRef = useRef<PDFDocumentProxy | null>(null);
+  const translatedHrefRef = useRef<string | null>(null);
+  const [translatedHref, setTranslatedHref] = useState<string | null>(null);
+  const [showTranslated, setShowTranslated] = useState(false);
+  const [translationStatus, setTranslationStatus] =
+    useState<TranslationStatus>('idle');
+  const [translationProgress, setTranslationProgress] = useState(0);
+  const [translationError, setTranslationError] = useState('');
+  const translationAbortRef = useRef<AbortController | null>(null);
+  const translationLoadTokenRef = useRef(0);
   const [currentPage, setCurrentPage] = useState(1);
   const currentPageRef = useRef(1);
   currentPageRef.current = currentPage;
@@ -192,10 +221,195 @@ export default function App() {
     void target.doc.destroy().catch(() => undefined);
   };
 
+  const disposeTranslatedDocument = () => {
+    const oldDoc = translatedDocRef.current;
+    const oldHref = translatedHrefRef.current;
+    translatedDocRef.current = null;
+    translatedHrefRef.current = null;
+    if (oldHref) URL.revokeObjectURL(oldHref);
+    if (oldDoc) {
+      window.setTimeout(() => {
+        void oldDoc.destroy().catch(() => undefined);
+      }, 300);
+    }
+  };
+
+  const resetTranslation = () => {
+    translationAbortRef.current?.abort();
+    translationAbortRef.current = null;
+    translationLoadTokenRef.current += 1;
+    disposeTranslatedDocument();
+    setTranslatedDoc(null);
+    setTranslatedHref(null);
+    setShowTranslated(false);
+    setTranslationStatus('idle');
+    setTranslationProgress(0);
+    setTranslationError('');
+  };
+
+  const adoptTranslatedDocument = (
+    doc: PDFDocumentProxy,
+    href: string,
+  ) => {
+    disposeTranslatedDocument();
+    translatedDocRef.current = doc;
+    translatedHrefRef.current = href;
+    setTranslatedDoc(doc);
+    setTranslatedHref(href);
+    setTranslationStatus('ready');
+    setTranslationError('');
+  };
+
+  const hydrateTranslatedPdf = async (paperId: string) => {
+    const token = ++translationLoadTokenRef.current;
+    try {
+      const stored = await getTranslatedPdf(paperId);
+      if (!stored || token !== translationLoadTokenRef.current) return;
+      if (paperRef.current?.key !== paperId) return;
+      const href = URL.createObjectURL(stored.blob);
+      const doc = await loadPdfFromFile(stored.blob);
+      if (token !== translationLoadTokenRef.current) {
+        URL.revokeObjectURL(href);
+        void doc.destroy().catch(() => undefined);
+        return;
+      }
+      if (paperRef.current?.key !== paperId) {
+        URL.revokeObjectURL(href);
+        void doc.destroy().catch(() => undefined);
+        return;
+      }
+      adoptTranslatedDocument(doc, href);
+      setTranslationProgress(100);
+    } catch (error) {
+      if (token !== translationLoadTokenRef.current) return;
+      console.warn('Failed to load translated PDF', error);
+      setTranslationStatus('error');
+      setTranslationError('已保存的中文 PDF 无法读取，可以重新翻译。');
+    }
+  };
+
+  const handleSavePdf2zhConfig = (next: Pdf2zhConfig) => {
+    const normalized = normalizePdf2zhConfig(next);
+    if (!normalized) {
+      setToast('请填写有效的 PDF 翻译服务地址，例如 http://127.0.0.1:8890');
+      return;
+    }
+    savePdf2zhConfig(normalized);
+    setPdf2zhConfig(normalized);
+    setToast('PDF 翻译服务配置已保存');
+  };
+
+  const handleTranslatePdf = async () => {
+    const session = paperRef.current;
+    if (!session || translationStatus === 'loading') return;
+    if (!pdf2zhConfig.baseUrl.trim()) {
+      setSettingsOpen(true);
+      setToast('请先在设置中填写 PDF 翻译服务地址');
+      return;
+    }
+    const config = normalizePdf2zhConfig(pdf2zhConfig);
+    if (!config) {
+      setSettingsOpen(true);
+      setToast('PDF 翻译服务地址无效，请检查设置');
+      return;
+    }
+
+    translationAbortRef.current?.abort();
+    translationLoadTokenRef.current += 1;
+    const controller = new AbortController();
+    translationAbortRef.current = controller;
+    setTranslationStatus('loading');
+    setTranslationProgress(1);
+    setTranslationError('');
+
+    try {
+      let source: Blob | null = session.localFile ?? null;
+      if (!source) {
+        const content = await getPaperContent(session.key).catch(() => null);
+        source = content?.pdfBlob ?? null;
+      }
+      if (!source) {
+        const response = await fetch(session.pdfHref, {
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`读取原始 PDF 失败（HTTP ${response.status}）`);
+        source = await response.blob();
+      }
+      if (source.size === 0) throw new Error('原始 PDF 为空，无法翻译');
+      const header = await source.slice(0, 5).text();
+      if (header !== '%PDF-') throw new Error('原始文件不是有效的 PDF');
+      const sourceBlob = source;
+
+      const safeKey = session.key.replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 80);
+      const fileName = `${safeKey || 'haila-paper'}.pdf`;
+      setTranslationProgress(4);
+      const submitted = await submitPdf2zh(
+        sourceBlob,
+        fileName,
+        config,
+        controller.signal,
+      );
+      let translatedName: string | null = null;
+      if (submitted.taskId) {
+        translatedName = await waitForPdf2zhResult(config, submitted.taskId, {
+          signal: controller.signal,
+          onProgress: (percent) => setTranslationProgress(percent),
+        });
+      } else {
+        translatedName = pickPdf2zhMonoFile(submitted.fileList);
+      }
+      if (!translatedName) throw new Error('翻译服务没有返回中文 PDF');
+      setTranslationProgress(97);
+      const translatedBlob = await fetchPdf2zhFile(
+        config,
+        translatedName,
+        controller.signal,
+      );
+      const translatedDoc = await loadPdfFromFile(translatedBlob);
+      if (
+        controller.signal.aborted ||
+        paperRef.current?.key !== session.key
+      ) {
+        void translatedDoc.destroy().catch(() => undefined);
+        return;
+      }
+
+      let persisted = true;
+      try {
+        await saveTranslatedPdf(session.key, translatedBlob, sourceBlob.size);
+      } catch (storageError) {
+        persisted = false;
+        console.warn('Failed to persist translated PDF', storageError);
+      }
+      const href = URL.createObjectURL(translatedBlob);
+      adoptTranslatedDocument(translatedDoc, href);
+      setTranslationProgress(100);
+      setShowTranslated(true);
+      setToast(
+        persisted
+          ? '中文 PDF 已生成，可在工具栏切换中英文'
+          : '中文 PDF 已生成，但浏览器空间不足，刷新后需要重新翻译',
+      );
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      const message =
+        error instanceof Error ? error.message : 'PDF 翻译失败，请重试';
+      setTranslationStatus('error');
+      setTranslationError(message);
+      setTranslationProgress(0);
+      setToast(`PDF 翻译失败：${message}`);
+    } finally {
+      if (translationAbortRef.current === controller) {
+        translationAbortRef.current = null;
+      }
+    }
+  };
+
   const activatePaper = (
     session: PaperSession,
     restored: RestoredThreads = emptyThreadState(),
   ) => {
+    resetTranslation();
     void saveCurrentThreadSnapshot();
     abortRef.current?.abort();
     abortRef.current = null;
@@ -215,6 +429,7 @@ export default function App() {
     setCurrentPage(startPage);
     setJumpRequest(startPage > 1 ? { page: startPage, nonce: Date.now() } : null);
     setMobileTab('paper');
+    void hydrateTranslatedPdf(session.key);
     if (previous) window.setTimeout(() => disposePaper(previous), 400);
   };
 
@@ -689,6 +904,7 @@ export default function App() {
   };
 
   const clearWorkspace = () => {
+    resetTranslation();
     abortRef.current?.abort();
     abortRef.current = null;
     loadAbortRef.current?.abort();
@@ -1409,8 +1625,10 @@ export default function App() {
       open={settingsOpen}
       config={config}
       server={serverConfig}
+      pdf2zhConfig={pdf2zhConfig}
       onClose={() => setSettingsOpen(false)}
       onSave={handleSaveConfig}
+      onSavePdf2zh={handleSavePdf2zhConfig}
     />
   );
 
@@ -1544,6 +1762,14 @@ export default function App() {
           <PdfViewer
             doc={paper.doc}
             pdfHref={paper.pdfHref}
+            translatedDoc={translatedDoc}
+            translatedHref={translatedHref}
+            showTranslated={showTranslated}
+            translationStatus={translationStatus}
+            translationProgress={translationProgress}
+            translationError={translationError}
+            onTranslatePdf={() => void handleTranslatePdf()}
+            onShowTranslation={setShowTranslated}
             jumpRequest={jumpRequest}
             onPageChange={setCurrentPage}
             modelReady={modelReady}

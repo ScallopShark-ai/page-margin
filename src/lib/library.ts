@@ -10,12 +10,13 @@ import type {
 } from '../types';
 
 const DB_NAME = 'pagemargin.library.v1';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const PAPERS = 'papers';
 const CONTENTS = 'contents';
 const CONVERSATIONS = 'conversations';
 const FOLDERS = 'folders';
 const IMPORT_RUNS = 'importRuns';
+const TRANSLATIONS = 'translations';
 const MAX_IMPORT_RUNS = 200;
 
 const FOLDER_COLORS = [
@@ -59,6 +60,9 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(IMPORT_RUNS)) {
         const store = db.createObjectStore(IMPORT_RUNS, { keyPath: 'id' });
         store.createIndex('startedAt', 'startedAt', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(TRANSLATIONS)) {
+        db.createObjectStore(TRANSLATIONS, { keyPath: 'paperId' });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -368,11 +372,57 @@ export async function movePapersToFolder(
   return updated;
 }
 
+export interface StoredTranslation {
+  paperId: string;
+  blob: Blob;
+  createdAt: number;
+  sourceBytes: number;
+}
+
+export async function getTranslatedPdf(
+  paperId: string,
+): Promise<StoredTranslation | null> {
+  const db = await openDatabase();
+  const transaction = db.transaction(TRANSLATIONS, 'readonly');
+  const row = (await requestResult(
+    transaction.objectStore(TRANSLATIONS).get(paperId),
+  )) as StoredTranslation | undefined;
+  await transactionDone(transaction);
+  return row ?? null;
+}
+
+export async function saveTranslatedPdf(
+  paperId: string,
+  blob: Blob,
+  sourceBytes = 0,
+): Promise<void> {
+  const db = await openDatabase();
+  const transaction = db.transaction(TRANSLATIONS, 'readwrite');
+  transaction.objectStore(TRANSLATIONS).put({
+    paperId,
+    blob,
+    createdAt: Date.now(),
+    sourceBytes,
+  } satisfies StoredTranslation);
+  await transactionDone(transaction);
+}
+
+export async function deleteTranslatedPdf(paperId: string): Promise<void> {
+  const db = await openDatabase();
+  const transaction = db.transaction(TRANSLATIONS, 'readwrite');
+  transaction.objectStore(TRANSLATIONS).delete(paperId);
+  await transactionDone(transaction);
+}
+
 export async function deletePaper(id: string): Promise<void> {
   const db = await openDatabase();
-  const transaction = db.transaction([PAPERS, CONTENTS, CONVERSATIONS], 'readwrite');
+  const transaction = db.transaction(
+    [PAPERS, CONTENTS, CONVERSATIONS, TRANSLATIONS],
+    'readwrite',
+  );
   transaction.objectStore(PAPERS).delete(id);
   transaction.objectStore(CONTENTS).delete(id);
+  transaction.objectStore(TRANSLATIONS).delete(id);
   const index = transaction.objectStore(CONVERSATIONS).index('paperId');
   const cursorRequest = index.openCursor(IDBKeyRange.only(id));
   cursorRequest.onsuccess = () => {

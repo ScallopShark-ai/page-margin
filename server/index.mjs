@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getArxivPdf, normalizeArxivInput, resolveArxiv } from './arxiv.mjs';
 import { fetchPdfFromUrl } from './pdf-proxy.mjs';
+import { createPdf2zhRouter } from './pdf2zh.mjs';
 import {
   buildPaperContext,
   buildSystemPrompt,
@@ -101,6 +102,8 @@ function resolveModelRequest(clientConfig = {}) {
   }
   return { provider, apiKey, baseUrl, model };
 }
+
+app.use('/api/pdf2zh', createPdf2zhRouter());
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'page-margin', time: new Date().toISOString() });
