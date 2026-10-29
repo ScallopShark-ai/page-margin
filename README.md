@@ -230,19 +230,44 @@ TXT 识别规则：
 
 海拉可以对接 `guaguastandup/zotero-pdf2zh` 提供的本地 HTTP 服务，把整篇 PDF 翻译成中文单语版本。该仓库本身是 AGPL-3.0 的 Zotero 插件与 Python 服务，不包含 `SKILL.md`；海拉不复制其插件代码，只通过 HTTP 协议调用服务。
 
-### 启动服务
+### 自动启动与隔离
 
-先在 pdf2zh 的 Python 环境中启动服务端，默认地址为 `http://127.0.0.1:8890`。服务端需要提前配置好翻译服务与模型 Key（例如 OpenAI、DeepSeek、SiliconFlow 或免费服务）。海拉不会读取或保存 pdf2zh 服务的模型 Key。
+海拉启动时会自动启动一份**项目内独立**的 pdf2zh 服务：
+
+```text
+haila/
+  .runtime/
+    zotero-pdf2zh/       # 固定版本的独立克隆
+    pdf2zh-venv/         # 独立 Python 3.12 环境
+    pdf2zh-cache/        # 独立的模型 / HuggingFace 缓存
+    pdf2zh-service.log   # 服务完整日志
+```
+
+- 服务端口固定为 `8891`，不会占用本机已有 Zotero/pdf2zh 的 `8890`。
+- 使用独立 venv 和缓存，不读取或修改现有 conda 环境。
+- 配置文件位于独立克隆的 `server/config`；翻译输出位于其 `server/translated`。
+- `.runtime/` 已加入 `.gitignore`，不会被提交到 Git。
+- 海拉退出时会停止自己启动的 pdf2zh 子进程；如果 8891 上已经有服务，会直接复用。
+- 启动失败不会影响海拉的阅读和聊天功能，详细原因见终端和 `.runtime/pdf2zh-service.log`。
+
+可通过环境变量覆盖：
+
+```text
+PDF2ZH_AUTOSTART=0        # 关闭自启动
+PDF2ZH_PORT=8891          # 修改端口
+PDF2ZH_HOME=...           # server.py 所在目录
+PDF2ZH_PYTHON=...         # 专用 Python 解释器
+```
 
 ### 在海拉中配置
 
 打开「连接 AI 模型」设置，在「PDF 全文翻译」区域填写：
 
-- **服务地址**：例如 `http://127.0.0.1:8890`
+- **服务地址**：默认 `http://127.0.0.1:8891`
 - **翻译引擎**：`pdf2zh_next / BabelDOC` 或 `pdf2zh 1.x`
-- **翻译服务**：与服务端配置一致，例如 `siliconflowfree`、`openai`、`deepseek`、`bing`
+- **翻译服务**：默认 `deepseek`，也可使用 `siliconflowfree`、`openai`、`bing`
 
-保存后打开任意论文，点击 PDF 顶部的「翻译 PDF」。
+服务端模型 Key 位于独立的 `server/config`，不会写入浏览器。打开任意论文，点击 PDF 顶部的「翻译 PDF」即可。服务端网页也可以直接访问 `http://127.0.0.1:8891`。
 
 ### 使用行为
 
@@ -285,6 +310,7 @@ server/
   arxiv.mjs                  arXiv 校验、元数据、PDF 缓存
   pdf-proxy.mjs              任意 PDF 直链下载、SSRF 防护
   pdf2zh.mjs                 pdf2zh 服务代理：提交、任务查询、翻译 PDF 下载
+  pdf2zh-autostart.mjs       启动/复用独立的本地 pdf2zh 服务
   context.mjs                文本分块、检索、提示词
   providers.mjs              OpenAI 兼容 / Anthropic 流式适配、模型列表
 public/pdfjs/                PDF.js 的 cmaps、字体、wasm 资源
@@ -295,7 +321,7 @@ public/pdfjs/                PDF.js 的 cmaps、字体、wasm 资源
 - 正常阅读时，本地 PDF 文件不会上传到远端；它和抽取文本、对话历史一起保存在当前浏览器的 IndexedDB 中。提问时会把解析后的相关文本片段随问题发送给你配置的模型；划词翻译时会发送选中文本、当前页上下文和论文标题。
 - 使用 PDF 全文翻译时，原始 PDF 会发送到你填写的 pdf2zh 服务地址；如果该地址不是本机，文件会离开这台电脑。翻译后的 PDF 保存在当前浏览器，删除论文时会一并删除。
 - 任意 PDF 直链由本机服务下载，下载后的 PDF 与本地文件一样只保存在浏览器 IndexedDB；原始链接会随论文记录保存在浏览器中。服务端不会长期保留远程 PDF。
-- API Key 保存在浏览器；若使用 `.env` 配置服务器 Key，则 Key 只在本地服务进程中。
+- 模型 API Key 默认保存在浏览器；若使用 `.env` 配置服务器 Key，则 Key 只在本地服务进程中。PDF 全文翻译的模型 Key 位于 `.runtime` 内独立 pdf2zh 服务的配置中，不会写入浏览器或提交到 Git。
 - 「常用模型」会把名称、Base URL、模型名称和 API Key 一起保存在当前浏览器的 `localStorage`。读取模型列表时，Key 由本地服务转发给所选网关，但不会写入磁盘；清除站点数据会删除常用配置。
 - 导入失败记录保存在浏览器 IndexedDB，包含失败的 PDF 链接、本地文件名和错误信息，最多 200 次；可以在记录窗口清空，不影响论文。
 - 文库没有云同步，换浏览器或清除站点数据后不会保留；如需迁移，请先导出原始 PDF。
@@ -352,4 +378,4 @@ TXT 按行处理，无法识别的行会跳过。请确保 arXiv 链接 / PDF �
 
 ## 说明
 
-项目已用真实的 arXiv 论文、网页 PDF 直链和本地 PDF 做浏览器端验证，并使用本地 mock 模型验证了流式对话、错误提示、重试、页码跳转、当前页上下文、停止生成、文库持久化、对话历史、文件夹创建/移动/重命名/删除与旧版 IndexedDB 迁移、任意 PDF 直链、批量链接/文件混合导入、TXT 链接识别、目标文件夹导入、批量整理论文到不同文件夹、按进度/标题/发表时间正倒序排序、后台导入跨页面运行与恢复、导入失败记录与跨刷新持久化、多文件拖入、来源筛选、模型列表读取、常用模型保存/切换/删除、划词翻译、翻译请求取消/关闭、pdf2zh 代理协议与中文单语 PDF 同页切换和移动端布局。真实第三方模型与真实 pdf2zh 翻译需要在界面和 pdf2zh 服务端配置后进行。
+项目已用真实的 arXiv 论文、网页 PDF 直链和本地 PDF 做浏览器端验证，并使用本地 mock 模型验证了流式对话、错误提示、重试、页码跳转、当前页上下文、停止生成、文库持久化、对话历史、文件夹创建/移动/重命名/删除与旧版 IndexedDB 迁移、任意 PDF 直链、批量链接/文件混合导入、TXT 链接识别、目标文件夹导入、批量整理论文到不同文件夹、按进度/标题/发表时间正倒序排序、后台导入跨页面运行与恢复、导入失败记录与跨刷新持久化、多文件拖入、来源筛选、模型列表读取、常用模型保存/切换/删除、划词翻译、翻译请求取消/关闭、pdf2zh 代理协议与中文单语 PDF 同页切换、独立 pdf2zh 服务自启动与隔离，以及真实 pdf2zh_next + DeepSeek 的单页 PDF 端到端翻译。真实第三方模型的对话与划词翻译仍需在界面中配置你自己的 API Key。

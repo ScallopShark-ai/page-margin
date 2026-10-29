@@ -642,7 +642,7 @@ export function SettingsModal({
                     baseUrl: event.target.value,
                   }))
                 }
-                placeholder="http://127.0.0.1:8890"
+                placeholder="http://127.0.0.1:8891"
                 spellCheck={false}
                 aria-label="PDF 翻译服务地址"
               />
@@ -675,7 +675,7 @@ export function SettingsModal({
                     }))
                   }
                   placeholder={
-                    pdf2zhDraft.engine === 'pdf2zh' ? 'bing' : 'siliconflowfree'
+                    pdf2zhDraft.engine === 'pdf2zh' ? 'bing' : 'deepseek'
                   }
                   spellCheck={false}
                   aria-label="PDF 翻译服务"

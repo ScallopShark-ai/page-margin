@@ -26,9 +26,9 @@ export interface Pdf2zhSubmitResult {
 export const PDF2ZH_STORAGE_KEY = 'pagemargin.pdf2zh.v1';
 
 export const DEFAULT_PDF2ZH_CONFIG: Pdf2zhConfig = {
-  baseUrl: 'http://127.0.0.1:8890',
+  baseUrl: 'http://127.0.0.1:8891',
   engine: 'pdf2zh_next',
-  service: 'siliconflowfree',
+  service: 'deepseek',
 };
 
 export function loadPdf2zhConfig(): Pdf2zhConfig {
@@ -40,11 +40,17 @@ export function loadPdf2zhConfig(): Pdf2zhConfig {
       parsed.engine === 'pdf2zh' || parsed.engine === 'pdf2zh_next'
         ? parsed.engine
         : DEFAULT_PDF2ZH_CONFIG.engine;
+    let baseUrl =
+      typeof parsed.baseUrl === 'string'
+        ? parsed.baseUrl.trim()
+        : DEFAULT_PDF2ZH_CONFIG.baseUrl;
+    // The old Haila default was 8890. Haila's managed runtime now uses 8891,
+    // leaving 8890 for the user's existing Zotero/pdf2zh installation.
+    if (/^http:\/\/(?:127\.0\.0\.1|localhost):8890\/?$/i.test(baseUrl)) {
+      baseUrl = baseUrl.replace(':8890', ':8891');
+    }
     return {
-      baseUrl:
-        typeof parsed.baseUrl === 'string'
-          ? parsed.baseUrl.trim()
-          : DEFAULT_PDF2ZH_CONFIG.baseUrl,
+      baseUrl,
       engine,
       service:
         typeof parsed.service === 'string' && parsed.service.trim()

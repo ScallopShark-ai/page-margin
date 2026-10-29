@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { getArxivPdf, normalizeArxivInput, resolveArxiv } from './arxiv.mjs';
 import { fetchPdfFromUrl } from './pdf-proxy.mjs';
 import { createPdf2zhRouter } from './pdf2zh.mjs';
+import { startPdf2zhService } from './pdf2zh-autostart.mjs';
 import {
   buildPaperContext,
   buildSystemPrompt,
@@ -481,4 +482,5 @@ app.listen(port, '127.0.0.1', () => {
       serverConfig.apiKey ? '(server key configured)' : '(key configured in browser)'
     }\n`,
   );
+  void startPdf2zhService();
 });
