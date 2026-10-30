@@ -9,11 +9,16 @@ if (-not (Test-Path $startScript)) {
 $desktop = [Environment]::GetFolderPath('Desktop')
 $shortcutPath = Join-Path $desktop '海拉 Haila.lnk'
 
-$edge = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
-if (Test-Path $edge) {
-  $icon = $edge + ',0'
+$hailaIcon = Join-Path $root 'public\haila.ico'
+if (Test-Path $hailaIcon) {
+  $icon = $hailaIcon + ',0'
 } else {
-  $icon = (Join-Path $env:SystemRoot 'System32\SHELL32.dll') + ',13'
+  $edge = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
+  if (Test-Path $edge) {
+    $icon = $edge + ',0'
+  } else {
+    $icon = (Join-Path $env:SystemRoot 'System32\SHELL32.dll') + ',13'
+  }
 }
 
 $shell = New-Object -ComObject WScript.Shell
