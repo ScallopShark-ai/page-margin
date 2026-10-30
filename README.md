@@ -1,6 +1,6 @@
 # 海拉 · Haila
 
-**v1.0.3** · 本地优先的 AI 论文精读工作台
+**v1.0.4** · 本地优先的 AI 论文精读工作台
 
 把论文读薄，把思路读厚。左侧显示论文原始 PDF，右侧是一个读过全文、回答带页码的 AI 精读伙伴。
 
@@ -17,6 +17,8 @@
 ![划词翻译](docs/preview-translation.png)
 
 ![PDF 全文翻译](docs/preview-pdf-translation.png)
+
+![PDF 翻译日志](docs/preview-pdf-logs.png)
 
 ![批量导入](docs/preview-batch.png)
 
@@ -55,6 +57,7 @@
 - **模型自动发现**：填写 Base URL 和 API Key 后，点击「获取列表」从服务商的 `/models` 接口读取当前可用的模型，支持搜索并一键填入。
 - **常用模型**：把模型名称、服务商、Base URL 和 Key 保存为常用配置；下次打开设置直接点「使用」切换，不必重新填写。保存的配置只存在当前浏览器。
 - **响应式**：桌面左右分栏可拖动调整；移动端在「论文原文 / AI 伴读」之间切换。
+- **PDF 翻译日志**：设置页或翻译失败位置可直接打开日志面板，按来源查看、搜索、自动刷新、复制和下载；API Key 会自动脱敏。
 - **一键部署 / 升级**：`npm run deploy` 从零创建依赖和独立 pdf2zh 运行时；`npm run upgrade` 拉取新版本、同步依赖并重新构建。
 - **桌面一键启动**：安装桌面快捷方式后，双击即可在后台启动海拉和独立 pdf2zh，并自动打开浏览器。
 
@@ -383,6 +386,22 @@ DeepSeek Key 保存在当前浏览器，并在每次翻译时通过本地代理�
 - PDF 原文会发送到你配置的本机 pdf2zh 服务；服务端会再把它发送给所选的翻译模型。翻译结果只保存在当前浏览器。
 - 如果服务未启动、地址错误或服务端模型未配置，工具栏会显示失败，可点击「重试翻译」。
 
+### PDF 翻译日志
+
+调试 PDF 翻译时可以直接在界面中查日志：
+
+- 打开「设置 → PDF 全文翻译 → 查看日志」。
+- 翻译失败时，PDF 工具栏也会出现「日志」按钮。
+- 日志面板支持：
+  - `pdf2zh 服务` / `海拉启动` 两个来源
+  - 搜索 `Traceback`、`error`、任务 ID 等关键词
+  - 自动刷新、手动刷新
+  - 复制当前结果、下载日志
+  - 错误和警告行高亮
+- 默认读取最近 **2 MB** 日志，避免大文件卡顿；超出时会标注「仅显示最近 2 MB」。
+- 返回前会脱敏 `sk-...`、`apiKey`、`token`、`secret` 等字段，避免把 Key 粘到 Issue 中。
+- 完整日志文件仍位于 `.runtime/pdf2zh-service.log` 和 `.runtime/haila-boot.log`。
+
 ## 项目结构
 
 ```
@@ -396,6 +415,7 @@ src/
     ChatPanel.tsx            对话、快捷动作、输入区
     MarkdownMessage.tsx      Markdown / 表格 / KaTeX
     DeepSeekSetupModal.tsx   无模型配置时显示 DeepSeek 首次配置
+    PdfTranslationLogsModal.tsx PDF 翻译日志查询、搜索与下载
     SettingsModal.tsx        模型配置、DeepSeek 翻译配置
     LibraryModal.tsx         本地文库管理
     HistoryDrawer.tsx        单篇论文的对话历史
@@ -496,6 +516,13 @@ TXT 按行处理，无法识别的行会跳过。请确保 arXiv 链接 / PDF �
 ## 更新日志
 
 后续版本按时间倒序记录在这里。
+
+### v1.0.4 · 2026-10-30
+
+- 新增 PDF 翻译日志查询面板：支持 pdf2zh 服务 / 海拉启动两个来源。
+- 支持关键词搜索、自动刷新、复制、下载和错误/警告高亮。
+- 日志接口只读取固定日志文件，限制最近 2 MB，并对 API Key、Token 等字段脱敏。
+- 设置页和 PDF 翻译失败位置均可直接打开日志。
 
 ### v1.0.3 · 2026-10-30
 

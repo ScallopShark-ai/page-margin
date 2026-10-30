@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   AlertCircle,
   Bookmark,
+  Bug,
   Check,
   ExternalLink,
   Eye,
@@ -43,6 +44,7 @@ interface SettingsModalProps {
   onClose: () => void;
   onSave: (config: ModelConfig) => void;
   onSavePdf2zh: (config: Pdf2zhConfig) => void;
+  onOpenPdfLogs: () => void;
 }
 
 const PROVIDER_ORDER: ProviderId[] = ['deepseek', 'openai', 'anthropic', 'custom'];
@@ -69,6 +71,7 @@ export function SettingsModal({
   onClose,
   onSave,
   onSavePdf2zh,
+  onOpenPdfLogs,
 }: SettingsModalProps) {
   const [draft, setDraft] = useState<ModelConfig>(config);
   const [pdf2zhDraft, setPdf2zhDraft] = useState<Pdf2zhConfig>(pdf2zhConfig);
@@ -636,6 +639,14 @@ export function SettingsModal({
                 PDF 全文翻译
               </span>
               <em>首次必配</em>
+              <button
+                type="button"
+                className="settings-pdf2zh-log"
+                onClick={onOpenPdfLogs}
+              >
+                <Bug size={12} />
+                查看日志
+              </button>
             </div>
             <p>
               连接本机的 zotero-pdf2zh 服务。首次在阅读器点击「翻译 PDF」时，

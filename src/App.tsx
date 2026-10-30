@@ -32,6 +32,7 @@ import { Landing } from './components/Landing';
 import { BatchImportModal } from './components/BatchImportModal';
 import { DeepSeekSetupModal } from './components/DeepSeekSetupModal';
 import { ImportHistoryModal } from './components/ImportHistoryModal';
+import { PdfTranslationLogsModal } from './components/PdfTranslationLogsModal';
 import { PdfViewer } from './components/PdfViewer';
 import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
@@ -177,6 +178,7 @@ export default function App() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchSeedFiles, setBatchSeedFiles] = useState<File[]>([]);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
+  const [pdfLogsOpen, setPdfLogsOpen] = useState(false);
   const [threads, setThreads] = useState<ConversationThread[]>([]);
   const threadsRef = useRef<ConversationThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -1677,6 +1679,10 @@ export default function App() {
       onClose={() => setSettingsOpen(false)}
       onSave={handleSaveConfig}
       onSavePdf2zh={handleSavePdf2zhConfig}
+      onOpenPdfLogs={() => {
+        setSettingsOpen(false);
+        setPdfLogsOpen(true);
+      }}
     />
   );
 
@@ -1818,6 +1824,7 @@ export default function App() {
             translationError={translationError}
             onTranslatePdf={() => void handleTranslatePdf()}
             onShowTranslation={setShowTranslated}
+            onOpenTranslationLogs={() => setPdfLogsOpen(true)}
             jumpRequest={jumpRequest}
             onPageChange={setCurrentPage}
             modelReady={modelReady}
@@ -1911,6 +1918,11 @@ export default function App() {
         open={needsDeepseekSetup}
         initial={deepseekSetupInitial}
         onSave={handleSavePdf2zhConfig}
+      />
+
+      <PdfTranslationLogsModal
+        open={pdfLogsOpen}
+        onClose={() => setPdfLogsOpen(false)}
       />
 
       {settingsModal}

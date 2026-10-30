@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  FileText,
   Languages,
   Loader2,
   Maximize2,
@@ -33,6 +34,7 @@ interface PdfViewerProps {
   translationError: string;
   onTranslatePdf: () => void;
   onShowTranslation: (show: boolean) => void;
+  onOpenTranslationLogs: () => void;
   jumpRequest: JumpRequest | null;
   onPageChange: (page: number) => void;
   modelReady: boolean;
@@ -222,6 +224,7 @@ export function PdfViewer({
   translationError,
   onTranslatePdf,
   onShowTranslation,
+  onOpenTranslationLogs,
   jumpRequest,
   onPageChange,
   modelReady,
@@ -633,6 +636,17 @@ export function PdfViewer({
                   ? '重试翻译'
                   : '翻译 PDF'}
             </span>
+          </button>
+        )}
+        {translationStatus === 'error' && (
+          <button
+            type="button"
+            className="pdf-translate-log-link"
+            onClick={onOpenTranslationLogs}
+            title="查看 PDF 翻译日志"
+          >
+            <FileText size={12} />
+            日志
           </button>
         )}
 

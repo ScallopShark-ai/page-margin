@@ -1,7 +1,15 @@
 import express from 'express';
+import { existsSync, openSync, readSync, closeSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const MAX_PDF_BYTES = 80 * 1024 * 1024;
 const SERVICE_TIMEOUT_MS = 45_000;
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const LOG_SOURCES = {
+  pdf2zh: path.join(projectRoot, '.runtime', 'pdf2zh-service.log'),
+  haila: path.join(projectRoot, '.runtime', 'haila-boot.log'),
+};
 
 function pdf2zhError(message, status = 400) {
   const error = new Error(message);
@@ -121,6 +129,40 @@ function parseClientLlmConfig(req) {
   };
 }
 
+function redactLogLine(line) {
+  return line
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, 'sk-***')
+    .replace(
+      /((?:api[_-]?key|token|secret)\s*[:=]\s*["']?)[^\s"',}]+/gi,
+      '$1***',
+    )
+    .replace(/("apiKey"\s*:\s*")[^"]+/gi, '$1***');
+}
+
+function readLogTail(filePath, maxBytes = 2 * 1024 * 1024) {
+  const stat = statSync(filePath);
+  const start = Math.max(0, stat.size - maxBytes);
+  const length = stat.size - start;
+  const buffer = Buffer.alloc(length);
+  const fd = openSync(filePath, 'r');
+  try {
+    readSync(fd, buffer, 0, length, start);
+  } finally {
+    closeSync(fd);
+  }
+  let text = buffer.toString('utf8');
+  if (start > 0) {
+    const newline = text.indexOf('\n');
+    text = newline >= 0 ? text.slice(newline + 1) : '';
+  }
+  return {
+    text,
+    size: stat.size,
+    mtime: stat.mtime.toISOString(),
+    truncated: start > 0,
+  };
+}
+
 function findTask(tasks, taskId) {
   if (!Array.isArray(tasks)) return null;
   return (
@@ -135,6 +177,50 @@ function findTask(tasks, taskId) {
 
 export function createPdf2zhRouter() {
   const router = express.Router();
+
+  router.get('/logs', (req, res, next) => {
+    try {
+      const source = String(req.query.source ?? 'pdf2zh');
+      const filePath = LOG_SOURCES[source];
+      if (!filePath) throw pdf2zhError('未知的日志来源');
+      if (!existsSync(filePath)) {
+        res.json({
+          source,
+          missing: true,
+          lines: [],
+          matched: 0,
+          scanned: 0,
+          truncated: false,
+        });
+        return;
+      }
+      const limit = Math.max(
+        50,
+        Math.min(
+          1000,
+          Number.parseInt(String(req.query.limit ?? '500'), 10) || 500,
+        ),
+      );
+      const query = String(req.query.q ?? '').trim().slice(0, 200).toLowerCase();
+      const tail = readLogTail(filePath);
+      const allLines = tail.text.split(/\r?\n/).filter((line) => line.length > 0);
+      const matchedLines = query
+        ? allLines.filter((line) => line.toLowerCase().includes(query))
+        : allLines;
+      res.json({
+        source,
+        path: path.relative(projectRoot, filePath),
+        size: tail.size,
+        mtime: tail.mtime,
+        truncated: tail.truncated,
+        scanned: allLines.length,
+        matched: matchedLines.length,
+        lines: matchedLines.slice(-limit).map(redactLogLine),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
 
   router.post(
     '/translate',
