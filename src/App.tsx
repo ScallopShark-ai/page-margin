@@ -111,6 +111,14 @@ interface RestoredThreads {
   startPage: number;
 }
 
+interface PdfTranslationJob {
+  paperId: string;
+  title: string;
+  status: 'running' | 'error';
+  progress: number;
+  error: string;
+}
+
 function makeId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -161,7 +169,12 @@ export default function App() {
     useState<TranslationStatus>('idle');
   const [translationProgress, setTranslationProgress] = useState(0);
   const [translationError, setTranslationError] = useState('');
-  const translationAbortRef = useRef<AbortController | null>(null);
+  const [translationJobs, setTranslationJobs] = useState<
+    Record<string, PdfTranslationJob>
+  >({});
+  const translationControllersRef = useRef<Map<string, AbortController>>(
+    new Map(),
+  );
   const translationLoadTokenRef = useRef(0);
   const [currentPage, setCurrentPage] = useState(1);
   const currentPageRef = useRef(1);
@@ -199,6 +212,17 @@ export default function App() {
   const needsDeepseekSetup =
     !hasUsableModel(config, serverConfig) &&
     !isDeepseekConfigured(pdf2zhConfig);
+  const translationJobList = Object.values(translationJobs);
+  const runningTranslationCount = translationJobList.filter(
+    (job) => job.status === 'running',
+  ).length;
+  const backgroundTranslationJobs = translationJobList.filter(
+    (job) =>
+      !(paper && !libraryOpen && job.paperId === paper.key),
+  );
+  const primaryBackgroundJob =
+    backgroundTranslationJobs.find((job) => job.status === 'running') ??
+    backgroundTranslationJobs[0];
   const deepseekSetupInitial: Pdf2zhConfig = {
     ...pdf2zhConfig,
     apiUrl:
@@ -238,6 +262,16 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (runningTranslationCount === 0) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [runningTranslationCount]);
+
   const disposePaper = (target: PaperSession | null) => {
     if (!target) return;
     if (target.pdfHref.startsWith('blob:')) {
@@ -260,8 +294,6 @@ export default function App() {
   };
 
   const resetTranslation = () => {
-    translationAbortRef.current?.abort();
-    translationAbortRef.current = null;
     translationLoadTokenRef.current += 1;
     disposeTranslatedDocument();
     setTranslatedDoc(null);
@@ -270,6 +302,15 @@ export default function App() {
     setTranslationStatus('idle');
     setTranslationProgress(0);
     setTranslationError('');
+  };
+
+  const dismissTranslationJob = (paperId: string) => {
+    setTranslationJobs((current) => {
+      if (!current[paperId]) return current;
+      const next = { ...current };
+      delete next[paperId];
+      return next;
+    });
   };
 
   const adoptTranslatedDocument = (
@@ -286,6 +327,7 @@ export default function App() {
   };
 
   const hydrateTranslatedPdf = async (paperId: string) => {
+    if (translationControllersRef.current.has(paperId)) return;
     const token = ++translationLoadTokenRef.current;
     try {
       const stored = await getTranslatedPdf(paperId);
@@ -338,7 +380,7 @@ export default function App() {
 
   const handleTranslatePdf = async () => {
     const session = paperRef.current;
-    if (!session || translationStatus === 'loading') return;
+    if (!session || translationControllersRef.current.has(session.key)) return;
     const effectivePdf2zhConfig = isDeepseekConfigured(pdf2zhConfig)
       ? pdf2zhConfig
       : config.provider === 'deepseek' && config.apiKey
@@ -365,10 +407,19 @@ export default function App() {
       setPdf2zhConfig(pdfConfig);
     }
 
-    translationAbortRef.current?.abort();
     translationLoadTokenRef.current += 1;
     const controller = new AbortController();
-    translationAbortRef.current = controller;
+    translationControllersRef.current.set(session.key, controller);
+    setTranslationJobs((current) => ({
+      ...current,
+      [session.key]: {
+        paperId: session.key,
+        title: session.meta.title,
+        status: 'running',
+        progress: 1,
+        error: '',
+      },
+    }));
     setTranslationStatus('loading');
     setTranslationProgress(1);
     setTranslationError('');
@@ -404,7 +455,19 @@ export default function App() {
       if (submitted.taskId) {
         translatedName = await waitForPdf2zhResult(pdfConfig, submitted.taskId, {
           signal: controller.signal,
-          onProgress: (percent) => setTranslationProgress(percent),
+          onProgress: (percent) => {
+            setTranslationJobs((current) => {
+              const job = current[session.key];
+              if (!job || job.status !== 'running') return current;
+              return {
+                ...current,
+                [session.key]: { ...job, progress: percent },
+              };
+            });
+            if (paperRef.current?.key === session.key) {
+              setTranslationProgress(percent);
+            }
+          },
         });
       } else {
         translatedName = pickPdf2zhMonoFile(submitted.fileList);
@@ -416,14 +479,6 @@ export default function App() {
         translatedName,
         controller.signal,
       );
-      const translatedDoc = await loadPdfFromFile(translatedBlob);
-      if (
-        controller.signal.aborted ||
-        paperRef.current?.key !== session.key
-      ) {
-        void translatedDoc.destroy().catch(() => undefined);
-        return;
-      }
 
       let persisted = true;
       try {
@@ -432,6 +487,25 @@ export default function App() {
         persisted = false;
         console.warn('Failed to persist translated PDF', storageError);
       }
+
+      translationControllersRef.current.delete(session.key);
+      setTranslationJobs((current) => {
+        if (!current[session.key]) return current;
+        const next = { ...current };
+        delete next[session.key];
+        return next;
+      });
+
+      if (paperRef.current?.key !== session.key) {
+        setToast(
+          persisted
+            ? `《${session.meta.title}》中文 PDF 已在后台生成`
+            : `《${session.meta.title}》翻译完成，但浏览器空间不足，未能保存`,
+        );
+        return;
+      }
+
+      const translatedDoc = await loadPdfFromFile(translatedBlob);
       const href = URL.createObjectURL(translatedBlob);
       adoptTranslatedDocument(translatedDoc, href);
       setTranslationProgress(100);
@@ -442,16 +516,31 @@ export default function App() {
           : '中文 PDF 已生成，但浏览器空间不足，刷新后需要重新翻译',
       );
     } catch (error) {
+      translationControllersRef.current.delete(session.key);
       if (controller.signal.aborted) return;
       const message =
         error instanceof Error ? error.message : 'PDF 翻译失败，请重试';
-      setTranslationStatus('error');
-      setTranslationError(message);
-      setTranslationProgress(0);
-      setToast(`PDF 翻译失败：${message}`);
+      setTranslationJobs((current) => ({
+        ...current,
+        [session.key]: {
+          paperId: session.key,
+          title: session.meta.title,
+          status: 'error',
+          progress: 0,
+          error: message,
+        },
+      }));
+      if (paperRef.current?.key === session.key) {
+        setTranslationStatus('error');
+        setTranslationError(message);
+        setTranslationProgress(0);
+        setToast(`PDF 翻译失败：${message}`);
+      } else {
+        setToast(`《${session.meta.title}》后台翻译失败：${message}`);
+      }
     } finally {
-      if (translationAbortRef.current === controller) {
-        translationAbortRef.current = null;
+      if (translationControllersRef.current.get(session.key) === controller) {
+        translationControllersRef.current.delete(session.key);
       }
     }
   };
@@ -480,7 +569,17 @@ export default function App() {
     setCurrentPage(startPage);
     setJumpRequest(startPage > 1 ? { page: startPage, nonce: Date.now() } : null);
     setMobileTab('paper');
-    void hydrateTranslatedPdf(session.key);
+    const translationJob = translationJobs[session.key];
+    if (translationJob?.status === 'running') {
+      setTranslationStatus('loading');
+      setTranslationProgress(translationJob.progress);
+    } else if (translationJob?.status === 'error') {
+      setTranslationStatus('error');
+      setTranslationError(translationJob.error);
+      setTranslationProgress(0);
+    } else {
+      void hydrateTranslatedPdf(session.key);
+    }
     if (previous) window.setTimeout(() => disposePaper(previous), 400);
   };
 
@@ -1132,6 +1231,9 @@ export default function App() {
       ? `从文库删除《${record.title}》？当前正在阅读，删除后会返回首页。`
       : `从文库删除《${record.title}》？论文、阅读进度和所有对话都会删除，且无法恢复。`;
     if (!window.confirm(message)) return;
+    translationControllersRef.current.get(record.id)?.abort();
+    translationControllersRef.current.delete(record.id);
+    dismissTranslationJob(record.id);
     try {
       await deleteStoredPaper(record.id);
       setPapers((current) => current.filter((item) => item.id !== record.id));
@@ -1925,6 +2027,69 @@ export default function App() {
         open={pdfLogsOpen}
         onClose={() => setPdfLogsOpen(false)}
       />
+
+      {primaryBackgroundJob && (
+        <div
+          className={`pdf-translation-background ${
+            primaryBackgroundJob.status === 'error' ? 'is-error' : ''
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <span className="pdf-translation-background-mark">
+            {primaryBackgroundJob.status === 'running' ? (
+              <Loader2 size={16} className="spin" />
+            ) : (
+              <AlertCircle size={16} />
+            )}
+          </span>
+          <div className="pdf-translation-background-copy">
+            <strong>
+              {primaryBackgroundJob.status === 'running'
+                ? backgroundTranslationJobs.filter(
+                    (job) => job.status === 'running',
+                  ).length > 1
+                  ? '正在后台翻译多篇 PDF'
+                  : '正在后台翻译 PDF'
+                : 'PDF 翻译失败'}
+            </strong>
+            <span title={primaryBackgroundJob.title}>
+              {primaryBackgroundJob.title}
+              {primaryBackgroundJob.status === 'running'
+                ? primaryBackgroundJob.progress > 1
+                  ? ` · ${primaryBackgroundJob.progress}%`
+                  : ' · 处理中'
+                : ` · ${primaryBackgroundJob.error}`}
+            </span>
+            {primaryBackgroundJob.status === 'running' && (
+              <span className="pdf-translation-background-track">
+                <i
+                  style={{
+                    width: `${Math.max(2, primaryBackgroundJob.progress)}%`,
+                  }}
+                />
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            className="pdf-translation-background-log"
+            onClick={() => setPdfLogsOpen(true)}
+          >
+            日志
+          </button>
+          {primaryBackgroundJob.status === 'error' && (
+            <button
+              type="button"
+              className="pdf-translation-background-close"
+              onClick={() => dismissTranslationJob(primaryBackgroundJob.paperId)}
+              aria-label="关闭翻译失败提示"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      )}
 
       {settingsModal}
       {libraryModal}

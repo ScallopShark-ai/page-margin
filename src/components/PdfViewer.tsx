@@ -631,7 +631,9 @@ export function PdfViewer({
             )}
             <span>
               {translationStatus === 'loading'
-                ? `翻译中 ${translationProgress}%`
+                ? translationProgress > 1
+                  ? `翻译中 ${translationProgress}%`
+                  : '翻译中'
                 : translationStatus === 'error'
                   ? '重试翻译'
                   : '翻译 PDF'}
