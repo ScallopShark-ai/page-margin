@@ -92,6 +92,7 @@ import {
   fetchPdf2zhFile,
   isDeepseekConfigured,
   loadPdf2zhConfig,
+  normalizeDeepseekModel,
   normalizePdf2zhConfig,
   pickPdf2zhMonoFile,
   savePdf2zhConfig,
@@ -345,7 +346,7 @@ export default function App() {
             ...pdf2zhConfig,
             apiUrl: config.baseUrl,
             apiKey: config.apiKey,
-            model: config.model,
+            model: normalizeDeepseekModel('deepseek', config.model),
           }
         : pdf2zhConfig;
     if (!effectivePdf2zhConfig.baseUrl.trim()) {

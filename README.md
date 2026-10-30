@@ -1,6 +1,6 @@
 # 海拉 · Haila
 
-**v1.0.4** · 本地优先的 AI 论文精读工作台
+**v1.0.5** · 本地优先的 AI 论文精读工作台
 
 把论文读薄，把思路读厚。左侧显示论文原始 PDF，右侧是一个读过全文、回答带页码的 AI 精读伙伴。
 
@@ -174,7 +174,7 @@ npm run dev
 
 - **API Base URL**：默认 `https://api.deepseek.com`
 - **DeepSeek API Key**
-- **翻译模型**：默认 `deepseek-chat`
+- **翻译模型**：默认 `deepseek-flash`
 
 这份配置用于**整篇 PDF 翻译**，默认翻译服务为 `deepseek`。Key 保存在当前
 浏览器，并在翻译时通过本地代理发送给 pdf2zh；本地运行时配置位于 `.runtime`，
@@ -371,7 +371,7 @@ PDF2ZH_PYTHON=...         # 专用 Python 解释器
 - **翻译服务**：默认 `deepseek`
 - **DeepSeek API Base URL**：默认 `https://api.deepseek.com`
 - **DeepSeek API Key**
-- **DeepSeek 翻译模型**：默认 `deepseek-chat`
+- **DeepSeek 翻译模型**：默认 `deepseek-flash`
 
 DeepSeek Key 保存在当前浏览器，并在每次翻译时通过本地代理发送给 pdf2zh；
 本地运行时配置位于 `.runtime`，不会写入项目源码仓库。打开任意论文，点击 PDF
@@ -401,6 +401,31 @@ DeepSeek Key 保存在当前浏览器，并在每次翻译时通过本地代理�
 - 默认读取最近 **2 MB** 日志，避免大文件卡顿；超出时会标注「仅显示最近 2 MB」。
 - 返回前会脱敏 `sk-...`、`apiKey`、`token`、`secret` 等字段，避免把 Key 粘到 Issue 中。
 - 完整日志文件仍位于 `.runtime/pdf2zh-service.log` 和 `.runtime/haila-boot.log`。
+
+### 修复：DeepSeek 模型名 400
+
+如果日志出现：
+
+```text
+The supported API model names are deepseek-flash, deepseek-v4-pro,
+but you passed DeepSeek-V4.1-Flash-1017.
+```
+
+说明接口只接受它声明的模型名。海拉会自动把包含 `deepseek` + `flash` 的别名
+归一到 `deepseek-flash`，包含 `deepseek` + `v4` / `pro` 的别名归一到
+`deepseek-v4-pro`。旧浏览器配置在重新打开后会自动迁移。
+
+也可以在「PDF 全文翻译」里手动填写：
+
+```text
+deepseek-flash
+```
+
+或：
+
+```text
+deepseek-v4-pro
+```
 
 ## 项目结构
 
@@ -516,6 +541,14 @@ TXT 按行处理，无法识别的行会跳过。请确保 arXiv 链接 / PDF �
 ## 更新日志
 
 后续版本按时间倒序记录在这里。
+
+### v1.0.5 · 2026-10-30
+
+- 修复 DeepSeek 接口返回 400、模型名不在支持列表的问题。
+- 自动把 `DeepSeek-V4.1-Flash-1017` 等别名归一到 `deepseek-flash`。
+- 自动把 DeepSeek Pro 别名归一到 `deepseek-v4-pro`。
+- PDF 翻译默认模型改为 `deepseek-flash`，旧浏览器配置重新打开后自动迁移。
+- 服务端运行时配置中的旧模型名同步修正。
 
 ### v1.0.4 · 2026-10-30
 

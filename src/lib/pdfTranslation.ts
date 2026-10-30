@@ -34,8 +34,26 @@ export const DEFAULT_PDF2ZH_CONFIG: Pdf2zhConfig = {
   service: 'deepseek',
   apiUrl: 'https://api.deepseek.com',
   apiKey: '',
-  model: 'deepseek-chat',
+  model: 'deepseek-flash',
 };
+
+export function normalizeDeepseekModel(service: string, model: string): string {
+  const value = model.trim();
+  if (!value || service.trim().toLowerCase() !== 'deepseek') return value;
+  const lower = value.toLowerCase();
+  if (lower === 'deepseek-flash' || lower === 'deepseek-v4-pro') return lower;
+  if (lower.includes('deepseek') && lower.includes('flash')) {
+    return 'deepseek-flash';
+  }
+  if (
+    lower.includes('deepseek') &&
+    lower.includes('pro') &&
+    !lower.includes('flash')
+  ) {
+    return 'deepseek-v4-pro';
+  }
+  return value;
+}
 
 export function isDeepseekConfigured(config: Pdf2zhConfig): boolean {
   return Boolean(config.apiKey.trim() && config.apiUrl.trim() && config.model.trim());
@@ -59,23 +77,26 @@ export function loadPdf2zhConfig(): Pdf2zhConfig {
     if (/^http:\/\/(?:127\.0\.0\.1|localhost):8890\/?$/i.test(baseUrl)) {
       baseUrl = baseUrl.replace(':8890', ':8891');
     }
+    const service =
+      typeof parsed.service === 'string' && parsed.service.trim()
+        ? parsed.service.trim()
+        : DEFAULT_PDF2ZH_CONFIG.service;
     return {
       baseUrl,
       engine,
-      service:
-        typeof parsed.service === 'string' && parsed.service.trim()
-          ? parsed.service.trim()
-          : DEFAULT_PDF2ZH_CONFIG.service,
+      service,
       apiUrl:
         typeof parsed.apiUrl === 'string' && parsed.apiUrl.trim()
           ? parsed.apiUrl.trim()
           : DEFAULT_PDF2ZH_CONFIG.apiUrl,
       apiKey:
         typeof parsed.apiKey === 'string' ? parsed.apiKey.trim() : '',
-      model:
+      model: normalizeDeepseekModel(
+        service,
         typeof parsed.model === 'string' && parsed.model.trim()
-          ? parsed.model.trim()
+          ? parsed.model
           : DEFAULT_PDF2ZH_CONFIG.model,
+      ),
     };
   } catch {
     return { ...DEFAULT_PDF2ZH_CONFIG };
@@ -104,7 +125,8 @@ export function normalizePdf2zhConfig(config: Pdf2zhConfig): Pdf2zhConfig | null
     config.engine === 'pdf2zh' ? 'pdf2zh' : 'pdf2zh_next';
   const apiUrl = config.apiUrl.trim().replace(/\/+$/, '');
   const apiKey = config.apiKey.trim();
-  const model = config.model.trim();
+  const service = config.service.trim() || 'deepseek';
+  const model = normalizeDeepseekModel(service, config.model);
   if (!apiUrl || !apiKey || !model) return null;
   try {
     const api = new URL(apiUrl);
@@ -115,7 +137,7 @@ export function normalizePdf2zhConfig(config: Pdf2zhConfig): Pdf2zhConfig | null
   return {
     baseUrl,
     engine,
-    service: config.service.trim() || 'deepseek',
+    service,
     apiUrl,
     apiKey,
     model,

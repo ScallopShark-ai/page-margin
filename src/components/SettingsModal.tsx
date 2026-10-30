@@ -757,7 +757,7 @@ export function SettingsModal({
                     model: event.target.value,
                   }))
                 }
-                placeholder="deepseek-chat"
+                placeholder="deepseek-flash"
                 spellCheck={false}
                 aria-label="DeepSeek 翻译模型"
               />
