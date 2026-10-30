@@ -1,15 +1,13 @@
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$startScript = Join-Path $root 'scripts\start-haila.ps1'
+$startScript = Join-Path $root 'scripts\start-haila.cmd'
 if (-not (Test-Path $startScript)) {
   throw "找不到启动脚本：$startScript"
 }
 
 $desktop = [Environment]::GetFolderPath('Desktop')
 $shortcutPath = Join-Path $desktop '海拉 Haila.lnk'
-$powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $startScript + '"'
 
 $edge = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 if (Test-Path $edge) {
@@ -20,8 +18,8 @@ if (Test-Path $edge) {
 
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $powershell
-$shortcut.Arguments = $arguments
+$shortcut.TargetPath = $startScript
+$shortcut.Arguments = ''
 $shortcut.WorkingDirectory = $root
 $shortcut.WindowStyle = 7
 $shortcut.IconLocation = $icon

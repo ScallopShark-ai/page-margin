@@ -414,6 +414,7 @@ scripts/
   setup-pdf2zh.mjs          创建独立 pdf2zh 克隆、Python 环境和配置
   upgrade.mjs               一键升级：git pull、依赖、运行时、构建
   start-haila.ps1           后台启动海拉、等待就绪并打开浏览器
+  start-haila.cmd           cmd 包装器，供桌面快捷方式调用
   install-haila-shortcut.ps1 创建桌面快捷方式
 server/
   start.mjs                  读取 .env、代理环境后启动服务
