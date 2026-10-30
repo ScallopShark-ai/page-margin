@@ -193,7 +193,9 @@ export default function App() {
 
   const modelReady = hasUsableModel(config, serverConfig);
   const modelStatusLabel = modelLabel(config, Boolean(serverConfig?.serverConfigured));
-  const needsDeepseekSetup = !isDeepseekConfigured(pdf2zhConfig);
+  const needsDeepseekSetup =
+    !hasUsableModel(config, serverConfig) &&
+    !isDeepseekConfigured(pdf2zhConfig);
   const deepseekSetupInitial: Pdf2zhConfig = {
     ...pdf2zhConfig,
     apiUrl:
@@ -334,16 +336,30 @@ export default function App() {
   const handleTranslatePdf = async () => {
     const session = paperRef.current;
     if (!session || translationStatus === 'loading') return;
-    if (!pdf2zhConfig.baseUrl.trim()) {
+    const effectivePdf2zhConfig = isDeepseekConfigured(pdf2zhConfig)
+      ? pdf2zhConfig
+      : config.provider === 'deepseek' && config.apiKey
+        ? {
+            ...pdf2zhConfig,
+            apiUrl: config.baseUrl,
+            apiKey: config.apiKey,
+            model: config.model,
+          }
+        : pdf2zhConfig;
+    if (!effectivePdf2zhConfig.baseUrl.trim()) {
       setSettingsOpen(true);
       setToast('请先在设置中填写 PDF 翻译服务地址');
       return;
     }
-    const config = normalizePdf2zhConfig(pdf2zhConfig);
-    if (!config) {
+    const pdfConfig = normalizePdf2zhConfig(effectivePdf2zhConfig);
+    if (!pdfConfig) {
       setSettingsOpen(true);
-      setToast('PDF 翻译服务地址无效，请检查设置');
+      setToast('请先配置 DeepSeek API Key、Base URL 和模型');
       return;
+    }
+    if (effectivePdf2zhConfig !== pdf2zhConfig) {
+      savePdf2zhConfig(pdfConfig);
+      setPdf2zhConfig(pdfConfig);
     }
 
     translationAbortRef.current?.abort();
@@ -378,12 +394,12 @@ export default function App() {
       const submitted = await submitPdf2zh(
         sourceBlob,
         fileName,
-        config,
+        pdfConfig,
         controller.signal,
       );
       let translatedName: string | null = null;
       if (submitted.taskId) {
-        translatedName = await waitForPdf2zhResult(config, submitted.taskId, {
+        translatedName = await waitForPdf2zhResult(pdfConfig, submitted.taskId, {
           signal: controller.signal,
           onProgress: (percent) => setTranslationProgress(percent),
         });
@@ -393,7 +409,7 @@ export default function App() {
       if (!translatedName) throw new Error('翻译服务没有返回中文 PDF');
       setTranslationProgress(97);
       const translatedBlob = await fetchPdf2zhFile(
-        config,
+        pdfConfig,
         translatedName,
         controller.signal,
       );

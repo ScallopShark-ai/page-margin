@@ -82,9 +82,8 @@ export function DeepSeekSetupModal({
         <span className="card-kicker">FIRST RUN SETUP</span>
         <h2 id="deepseek-setup-title">配置 DeepSeek API</h2>
         <p className="deepseek-setup-lead">
-          海拉使用 DeepSeek 完成整篇 PDF 翻译。第一次使用必须先配置一个
-          DeepSeek API，之后会作为翻译的默认模型；如果还没有对话模型，
-          这份配置也会作为默认对话模型。
+          海拉还没有可用的模型 API。配置一个 DeepSeek API 后，它会作为
+          翻译的默认模型；如果还没有对话模型，也会作为默认对话模型。
         </p>
 
         <form onSubmit={submit}>
