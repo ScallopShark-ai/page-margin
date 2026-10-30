@@ -8702,10 +8702,11 @@ body.is-resizing * {
   backdrop-filter: blur(14px);
   animation: modal-in 0.2s ease both;
   overflow: hidden;
+  will-change: width;
   transition:
-    width 0.2s ease,
-    padding 0.2s ease,
-    gap 0.2s ease;
+    width 0.38s ease-in-out,
+    padding 0.38s ease-in-out,
+    gap 0.38s ease-in-out;
 }
 
 .pdf-translation-background.is-collapsed {
@@ -8715,10 +8716,19 @@ body.is-resizing * {
   cursor: pointer;
 }
 
+.pdf-translation-background-copy,
+.pdf-translation-background-log,
+.pdf-translation-background-close {
+  opacity: 1;
+  transition: opacity 0.22s ease 0.12s;
+}
+
 .pdf-translation-background.is-collapsed .pdf-translation-background-copy,
 .pdf-translation-background.is-collapsed .pdf-translation-background-log,
 .pdf-translation-background.is-collapsed .pdf-translation-background-close {
-  display: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
 }
 
 .pdf-translation-background:focus-visible {
@@ -8747,10 +8757,11 @@ body.is-resizing * {
 
 .pdf-translation-background-copy {
   display: flex;
-  min-width: 0;
-  flex: 1;
+  min-width: 220px;
+  flex: 1 0 220px;
   flex-direction: column;
   gap: 2px;
+  white-space: nowrap;
 }
 
 .pdf-translation-background-copy strong {
