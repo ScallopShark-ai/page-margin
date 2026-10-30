@@ -32,6 +32,7 @@ import { Landing } from './components/Landing';
 import { BatchImportModal } from './components/BatchImportModal';
 import { DeepSeekSetupModal } from './components/DeepSeekSetupModal';
 import { ImportHistoryModal } from './components/ImportHistoryModal';
+import { PdfTranslationBackground } from './components/PdfTranslationBackground';
 import { PdfTranslationLogsModal } from './components/PdfTranslationLogsModal';
 import { PdfViewer } from './components/PdfViewer';
 import { ChatPanel } from './components/ChatPanel';
@@ -2029,66 +2030,15 @@ export default function App() {
       />
 
       {primaryBackgroundJob && (
-        <div
-          className={`pdf-translation-background ${
-            primaryBackgroundJob.status === 'error' ? 'is-error' : ''
-          }`}
-          role="status"
-          aria-live="polite"
-        >
-          <span className="pdf-translation-background-mark">
-            {primaryBackgroundJob.status === 'running' ? (
-              <Loader2 size={16} className="spin" />
-            ) : (
-              <AlertCircle size={16} />
-            )}
-          </span>
-          <div className="pdf-translation-background-copy">
-            <strong>
-              {primaryBackgroundJob.status === 'running'
-                ? backgroundTranslationJobs.filter(
-                    (job) => job.status === 'running',
-                  ).length > 1
-                  ? '正在后台翻译多篇 PDF'
-                  : '正在后台翻译 PDF'
-                : 'PDF 翻译失败'}
-            </strong>
-            <span title={primaryBackgroundJob.title}>
-              {primaryBackgroundJob.title}
-              {primaryBackgroundJob.status === 'running'
-                ? primaryBackgroundJob.progress > 1
-                  ? ` · ${primaryBackgroundJob.progress}%`
-                  : ' · 处理中'
-                : ` · ${primaryBackgroundJob.error}`}
-            </span>
-            {primaryBackgroundJob.status === 'running' && (
-              <span className="pdf-translation-background-track">
-                <i
-                  style={{
-                    width: `${Math.max(2, primaryBackgroundJob.progress)}%`,
-                  }}
-                />
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            className="pdf-translation-background-log"
-            onClick={() => setPdfLogsOpen(true)}
-          >
-            日志
-          </button>
-          {primaryBackgroundJob.status === 'error' && (
-            <button
-              type="button"
-              className="pdf-translation-background-close"
-              onClick={() => dismissTranslationJob(primaryBackgroundJob.paperId)}
-              aria-label="关闭翻译失败提示"
-            >
-              <X size={13} />
-            </button>
-          )}
-        </div>
+        <PdfTranslationBackground
+          job={primaryBackgroundJob}
+          runningCount={
+            backgroundTranslationJobs.filter((job) => job.status === 'running')
+              .length
+          }
+          onOpenLogs={() => setPdfLogsOpen(true)}
+          onDismiss={() => dismissTranslationJob(primaryBackgroundJob.paperId)}
+        />
       )}
 
       {settingsModal}
