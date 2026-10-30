@@ -34,7 +34,12 @@ import type {
   ProviderId,
   ServerConfig,
 } from '../types';
-import type { Pdf2zhConfig, Pdf2zhEngine } from '../lib/pdfTranslation';
+import {
+  applyPdf2zhApiUrl,
+  PDF2ZH_SERVICE_OPTIONS,
+  type Pdf2zhConfig,
+  type Pdf2zhEngine,
+} from '../lib/pdfTranslation';
 
 interface SettingsModalProps {
   open: boolean;
@@ -245,7 +250,7 @@ export function SettingsModal({
       }
     }
     if (!nextPdf2zh.apiKey || !nextPdf2zh.apiUrl || !nextPdf2zh.model) {
-      setError('PDF 全文翻译必须配置 DeepSeek API Key、Base URL 和模型');
+      setError('PDF 全文翻译必须配置 API Key、Base URL 和模型');
       return;
     }
     const next = normalizeDraft();
@@ -638,7 +643,7 @@ export function SettingsModal({
                 <Languages size={14} />
                 PDF 全文翻译
               </span>
-              <em>首次必配</em>
+              <em>翻译 API</em>
               <button
                 type="button"
                 className="settings-pdf2zh-log"
@@ -685,8 +690,8 @@ export function SettingsModal({
                 </select>
               </label>
               <label className="settings-field">
-                翻译服务
-                <input
+                接口类型
+                <select
                   value={pdf2zhDraft.service}
                   onChange={(event) =>
                     setPdf2zhDraft((current) => ({
@@ -694,31 +699,45 @@ export function SettingsModal({
                       service: event.target.value,
                     }))
                   }
-                  placeholder={
-                    pdf2zhDraft.engine === 'pdf2zh' ? 'bing' : 'deepseek'
-                  }
-                  spellCheck={false}
-                  aria-label="PDF 翻译服务"
-                />
+                  aria-label="PDF 翻译接口类型"
+                >
+                  {PDF2ZH_SERVICE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                  {!PDF2ZH_SERVICE_OPTIONS.some(
+                    (option) => option.value === pdf2zhDraft.service,
+                  ) && (
+                    <option value={pdf2zhDraft.service}>
+                      {pdf2zhDraft.service || '自定义服务'}
+                    </option>
+                  )}
+                </select>
               </label>
             </div>
             <label className="settings-field">
-              DeepSeek API Base URL
+              API Base URL
               <input
                 value={pdf2zhDraft.apiUrl}
                 onChange={(event) =>
-                  setPdf2zhDraft((current) => ({
-                    ...current,
-                    apiUrl: event.target.value,
-                  }))
+                  setPdf2zhDraft((current) =>
+                    applyPdf2zhApiUrl(current, event.target.value),
+                  )
                 }
-                placeholder="https://api.deepseek.com"
+                placeholder={
+                  pdf2zhDraft.service === 'deepseek'
+                    ? 'https://api.deepseek.com'
+                    : pdf2zhDraft.service === 'openai'
+                      ? 'https://api.openai.com/v1'
+                      : 'https://your-api.example.com/v1'
+                }
                 spellCheck={false}
-                aria-label="DeepSeek 翻译 API Base URL"
+                aria-label="PDF 翻译 API Base URL"
               />
             </label>
             <label className="settings-field">
-              DeepSeek API Key
+              API Key
               <div className="deepseek-key-field">
                 <span className="deepseek-key-icon">
                   <KeyRound size={14} />
@@ -735,7 +754,7 @@ export function SettingsModal({
                   placeholder="sk-…"
                   spellCheck={false}
                   autoComplete="off"
-                  aria-label="DeepSeek 翻译 API Key"
+                  aria-label="PDF 翻译 API Key"
                 />
                 <button
                   type="button"
@@ -748,7 +767,7 @@ export function SettingsModal({
               </div>
             </label>
             <label className="settings-field">
-              DeepSeek 翻译模型
+              模型名称
               <input
                 value={pdf2zhDraft.model}
                 onChange={(event) =>
@@ -757,15 +776,22 @@ export function SettingsModal({
                     model: event.target.value,
                   }))
                 }
-                placeholder="deepseek-flash"
+                placeholder={
+                  pdf2zhDraft.service === 'deepseek'
+                    ? 'deepseek-flash'
+                    : pdf2zhDraft.service === 'openai'
+                      ? 'gpt-4o-mini'
+                      : '你的模型名称'
+                }
                 spellCheck={false}
-                aria-label="DeepSeek 翻译模型"
+                aria-label="PDF 翻译模型"
               />
             </label>
             <p className="settings-pdf2zh-hint">
-              服务名称需与 pdf2zh 服务端配置一致，例如 openai、deepseek、bing。
-              DeepSeek Key 保存在当前浏览器，用于整篇 PDF 翻译；本地运行时不写入
-              项目仓库。这里只生成中文单语 PDF，不额外显示双语文件。
+              支持任意 OpenAI 兼容 API。DeepSeek / OpenAI 会根据 URL 自动识别，
+              其他服务请选择「OpenAI 兼容 / 其他模型」并填写完整的 Base URL
+              （通常以 <code>/v1</code> 结尾）。Key 保存在当前浏览器，用于整篇
+              PDF 翻译；本地运行时不写入项目仓库。
             </p>
           </section>
 

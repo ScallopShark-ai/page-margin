@@ -7,7 +7,11 @@ import {
   Languages,
   LockKeyhole,
 } from 'lucide-react';
-import type { Pdf2zhConfig } from '../lib/pdfTranslation';
+import {
+  applyPdf2zhApiUrl,
+  PDF2ZH_SERVICE_OPTIONS,
+  type Pdf2zhConfig,
+} from '../lib/pdfTranslation';
 
 interface DeepSeekSetupModalProps {
   open: boolean;
@@ -53,11 +57,11 @@ export function DeepSeekSetupModal({
       const url = new URL(apiUrl);
       if (!['http:', 'https:'].includes(url.protocol)) throw new Error('protocol');
     } catch {
-      setError('请填写有效的 DeepSeek API Base URL');
+      setError('请填写有效的 API Base URL');
       return;
     }
     if (!apiKey) {
-      setError('请填写 DeepSeek API Key');
+      setError('请填写 API Key');
       return;
     }
     if (!model) {
@@ -80,33 +84,65 @@ export function DeepSeekSetupModal({
           <Languages size={21} />
         </div>
         <span className="card-kicker">FIRST RUN SETUP</span>
-        <h2 id="deepseek-setup-title">配置 DeepSeek API</h2>
+        <h2 id="deepseek-setup-title">配置翻译模型 API</h2>
         <p className="deepseek-setup-lead">
-          海拉还没有可用的模型 API。配置一个 DeepSeek API 后，它会作为
-          翻译的默认模型；如果还没有对话模型，也会作为默认对话模型。
+          填写任意 OpenAI 兼容服务的 API。「翻译 PDF」会使用这里的模型；
+          也可以使用 DeepSeek、OpenAI 或自己的网关。
         </p>
 
         <form onSubmit={submit}>
+          <label className="settings-field">
+            接口类型
+            <select
+              value={draft.service}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  service: event.target.value,
+                }))
+              }
+              aria-label="PDF 翻译接口类型"
+            >
+              {PDF2ZH_SERVICE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+              {!PDF2ZH_SERVICE_OPTIONS.some(
+                (option) => option.value === draft.service,
+              ) && (
+                <option value={draft.service}>
+                  {draft.service || '自定义服务'}
+                </option>
+              )}
+            </select>
+          </label>
+
           <label className="settings-field">
             API Base URL
             <input
               ref={inputRef}
               value={draft.apiUrl}
               onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  apiUrl: event.target.value,
-                }))
+                setDraft((current) =>
+                  applyPdf2zhApiUrl(current, event.target.value),
+                )
               }
-              placeholder="https://api.deepseek.com"
+              placeholder={
+                draft.service === 'deepseek'
+                  ? 'https://api.deepseek.com'
+                  : draft.service === 'openai'
+                    ? 'https://api.openai.com/v1'
+                    : 'https://your-api.example.com/v1'
+              }
               spellCheck={false}
               autoComplete="url"
-              aria-label="DeepSeek API Base URL"
+              aria-label="翻译 API Base URL"
             />
           </label>
 
           <label className="settings-field">
-            DeepSeek API Key
+            API Key
             <div className="deepseek-key-field">
               <span className="deepseek-key-icon">
                 <KeyRound size={14} />
@@ -123,7 +159,7 @@ export function DeepSeekSetupModal({
                 placeholder="sk-…"
                 spellCheck={false}
                 autoComplete="off"
-                aria-label="DeepSeek API Key"
+                aria-label="翻译 API Key"
               />
               <button
                 type="button"
@@ -146,9 +182,15 @@ export function DeepSeekSetupModal({
                   model: event.target.value,
                 }))
               }
-              placeholder="deepseek-flash"
+              placeholder={
+                draft.service === 'deepseek'
+                  ? 'deepseek-flash'
+                  : draft.service === 'openai'
+                    ? 'gpt-4o-mini'
+                    : '你的模型名称'
+              }
               spellCheck={false}
-              aria-label="DeepSeek 翻译模型"
+              aria-label="PDF 翻译模型"
             />
           </label>
 
@@ -161,7 +203,8 @@ export function DeepSeekSetupModal({
           <div className="deepseek-setup-note">
             <LockKeyhole size={13} />
             <span>
-              Key 保存在当前浏览器，用于 PDF 全文翻译；尚未配置对话模型时也会作为默认对话模型。
+              Key 保存在当前浏览器，用于 PDF 全文翻译。选择 DeepSeek 且尚未配置
+              对话模型时，也会作为默认对话模型。
             </span>
           </div>
 

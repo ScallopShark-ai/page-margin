@@ -91,6 +91,8 @@ import {
 import {
   DEFAULT_PDF2ZH_CONFIG,
   fetchPdf2zhFile,
+  applyPdf2zhApiUrl,
+  inferPdf2zhService,
   isDeepseekConfigured,
   loadPdf2zhConfig,
   normalizeDeepseekModel,
@@ -224,22 +226,31 @@ export default function App() {
   const primaryBackgroundJob =
     backgroundTranslationJobs.find((job) => job.status === 'running') ??
     backgroundTranslationJobs[0];
-  const deepseekSetupInitial: Pdf2zhConfig = {
-    ...pdf2zhConfig,
-    apiUrl:
-      pdf2zhConfig.apiUrl ||
-      (config.provider === 'deepseek'
-        ? config.baseUrl
-        : DEFAULT_PDF2ZH_CONFIG.apiUrl),
-    apiKey:
-      pdf2zhConfig.apiKey ||
-      (config.provider === 'deepseek' ? config.apiKey : ''),
-    model:
-      pdf2zhConfig.model ||
-      (config.provider === 'deepseek'
-        ? config.model
-        : DEFAULT_PDF2ZH_CONFIG.model),
-  };
+  const canReuseChatConfig =
+    Boolean(config.apiKey && config.baseUrl) &&
+    (config.provider === 'deepseek' ||
+      config.provider === 'openai' ||
+      config.provider === 'custom');
+  const setupApiUrl =
+    pdf2zhConfig.apiUrl ||
+    (canReuseChatConfig ? config.baseUrl : DEFAULT_PDF2ZH_CONFIG.apiUrl);
+  const deepseekSetupInitial = applyPdf2zhApiUrl(
+    {
+      ...pdf2zhConfig,
+      apiUrl: setupApiUrl,
+      apiKey:
+        pdf2zhConfig.apiKey || (canReuseChatConfig ? config.apiKey : ''),
+      model:
+        pdf2zhConfig.model ||
+        (canReuseChatConfig
+          ? normalizeDeepseekModel(
+              inferPdf2zhService(config.baseUrl),
+              config.model,
+            )
+          : DEFAULT_PDF2ZH_CONFIG.model),
+    },
+    setupApiUrl,
+  );
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -364,7 +375,10 @@ export default function App() {
     }
     savePdf2zhConfig(normalized);
     setPdf2zhConfig(normalized);
-    if (!hasUsableModel(config, serverConfig)) {
+    if (
+      normalized.service === 'deepseek' &&
+      !hasUsableModel(config, serverConfig)
+    ) {
       const nextChat: ModelConfig = {
         ...config,
         provider: 'deepseek',
@@ -376,21 +390,24 @@ export default function App() {
       saveConfig(nextChat);
       setConfig(nextChat);
     }
-    setToast('DeepSeek 配置已保存，可用于对话和 PDF 翻译');
+    setToast('翻译 API 已保存，可用于 PDF 全文翻译');
   };
 
   const handleTranslatePdf = async () => {
     const session = paperRef.current;
     if (!session || translationControllersRef.current.has(session.key)) return;
+    const fallbackService = inferPdf2zhService(config.baseUrl);
     const effectivePdf2zhConfig = isDeepseekConfigured(pdf2zhConfig)
       ? pdf2zhConfig
-      : config.provider === 'deepseek' && config.apiKey
-        ? {
-            ...pdf2zhConfig,
-            apiUrl: config.baseUrl,
-            apiKey: config.apiKey,
-            model: normalizeDeepseekModel('deepseek', config.model),
-          }
+      : canReuseChatConfig
+        ? applyPdf2zhApiUrl(
+            {
+              ...pdf2zhConfig,
+              apiKey: config.apiKey,
+              model: normalizeDeepseekModel(fallbackService, config.model),
+            },
+            config.baseUrl,
+          )
         : pdf2zhConfig;
     if (!effectivePdf2zhConfig.baseUrl.trim()) {
       setSettingsOpen(true);
@@ -400,7 +417,7 @@ export default function App() {
     const pdfConfig = normalizePdf2zhConfig(effectivePdf2zhConfig);
     if (!pdfConfig) {
       setSettingsOpen(true);
-      setToast('请先配置 DeepSeek API Key、Base URL 和模型');
+      setToast('请先配置翻译 API Key、Base URL 和模型');
       return;
     }
     if (effectivePdf2zhConfig !== pdf2zhConfig) {

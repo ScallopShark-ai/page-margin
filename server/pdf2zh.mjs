@@ -110,16 +110,16 @@ function parseClientLlmConfig(req) {
   const apiKey = String(parsed?.apiKey ?? '').trim();
   const model = String(parsed?.model ?? '').trim();
   if (!apiUrl || !apiKey || !model) {
-    throw pdf2zhError('首次使用需要配置 DeepSeek API Key、Base URL 和模型');
+    throw pdf2zhError('首次使用需要配置翻译 API Key、Base URL 和模型');
   }
   let url;
   try {
     url = new URL(apiUrl);
   } catch {
-    throw pdf2zhError('DeepSeek API Base URL 无效');
+    throw pdf2zhError('翻译 API Base URL 无效');
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw pdf2zhError('DeepSeek API Base URL 只支持 http/https');
+    throw pdf2zhError('翻译 API Base URL 只支持 http/https');
   }
   return {
     apiKey,

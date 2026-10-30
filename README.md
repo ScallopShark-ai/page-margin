@@ -1,6 +1,6 @@
 # 海拉 · Haila
 
-**v1.0.8** · 本地优先的 AI 论文精读工作台
+**v1.0.9** · 本地优先的 AI 论文精读工作台
 
 把论文读薄，把思路读厚。左侧显示论文原始 PDF，右侧是一个读过全文、回答带页码的 AI 精读伙伴。
 
@@ -42,7 +42,7 @@
 - **本地 PDF**：拖拽或选择文件，浏览器内解析版面与全文，文件本身不上传远端。
 - **连续阅读器**：基于 PDF.js 渲染原始页面，支持页码跳转、缩放、适应宽度、在新窗口打开原始文件。
 - **划词翻译**：在 PDF 上划选文字，自动用配置的模型翻译，并根据原文语言自动选择中文或英文为目标语言；支持复制译文，也可在 PDF 工具栏临时关闭划词翻译。
-- **PDF 全文翻译**：连接本机 zotero-pdf2zh 服务后，在阅读器顶部一键生成中文单语 PDF；通过 EN / 中文按钮在同一个阅读器中切换，保留当前页码，不额外显示翻译文件。未配置任何模型 API/URL 时才会要求配置 DeepSeek API。
+- **PDF 全文翻译**：连接本机 zotero-pdf2zh 服务后，在阅读器顶部一键生成中文单语 PDF；通过 EN / 中文按钮在同一个阅读器中切换，保留当前页码，不额外显示翻译文件。翻译模型支持 DeepSeek、OpenAI 和任意 OpenAI 兼容 API，不再限定 DeepSeek。
 - **后台 PDF 翻译**：点击翻译后可以退出当前论文、返回首页或打开其他论文，任务继续在后台运行；完成后自动保存，重新打开论文即可切换中文。进度条会在 1.5 秒后自动收起为小圆环，悬停或点击可展开。
 - **本地文库**：自动收藏读过的论文，支持全文搜索、按 arXiv / 本地 / 网页 PDF / 收藏筛选、收藏和删除；每篇论文保存原始阅读位置。
 - **多字段排序**：全部文献和任意文件夹中都可按阅读进度、标题、发表时间正序或倒序排列，同时保留最近打开 / 最近添加排序。
@@ -88,8 +88,9 @@ npm start
 5. 构建海拉前端
 
 打开 **http://127.0.0.1:8787**。如果还没有配置任何模型 API 和 URL，会要求
-先配置 **DeepSeek API**；已经有模型配置时不会重复弹出。Key 保存在当前浏览器，
-并交给本地 pdf2zh 运行时使用，不会提交到项目仓库。
+先配置 **翻译 API**（DeepSeek、OpenAI 或任意 OpenAI 兼容接口）；已经有模型配置
+时不会重复弹出。Key 保存在当前浏览器，并交给本地 pdf2zh 运行时使用，不会提交
+到项目仓库。
 
 > `.runtime` 不会提交到 Git，也不会把任何人的 API Key 带进仓库。
 > 海拉启动时会自动启动这份独立的 pdf2zh（端口 `8891`），不占用原有
@@ -170,19 +171,20 @@ npm run dev
 
 ### 首次启动：没有模型配置时
 
-只有在还没有配置任何模型 API 和 URL 时，第一次打开海拉才会弹出 DeepSeek
-配置窗口，要求填写：
+只有在还没有配置任何模型 API 和 URL 时，第一次打开海拉才会弹出翻译模型配置
+窗口，要求填写：
 
-- **API Base URL**：默认 `https://api.deepseek.com`
-- **DeepSeek API Key**
-- **翻译模型**：默认 `deepseek-flash`
+- **接口类型**：DeepSeek、OpenAI 或 OpenAI 兼容 / 其他模型
+- **API Base URL**：例如 `https://api.deepseek.com`、`https://api.openai.com/v1`
+- **API Key**
+- **模型名称**：例如 `deepseek-flash`、`gpt-4o-mini`、`Qwen/Qwen2.5-7B-Instruct`
 
-这份配置用于**整篇 PDF 翻译**，默认翻译服务为 `deepseek`。Key 保存在当前
-浏览器，并在翻译时通过本地代理发送给 pdf2zh；本地运行时配置位于 `.runtime`，
-不会写入项目源码仓库。
+这份配置用于**整篇 PDF 翻译**。选择 DeepSeek 且尚未配置对话模型时，也会作为
+默认对话模型。Key 保存在当前浏览器，并在翻译时通过本地代理发送给 pdf2zh；
+本地运行时配置位于 `.runtime`，不会写入项目源码仓库。
 
-配置完成后，可以在同一设置页随时修改。海拉要求至少保留一个 DeepSeek 翻译
-配置，才能使用「翻译 PDF」。
+配置完成后，可以在同一设置页随时修改。其他 OpenAI 兼容服务只需要 URL、Key
+和模型名，不需要改 pdf2zh 服务端代码。
 
 ### 对话模型
 
@@ -369,12 +371,29 @@ PDF2ZH_PYTHON=...         # 专用 Python 解释器
 
 - **服务地址**：默认 `http://127.0.0.1:8891`
 - **翻译引擎**：`pdf2zh_next / BabelDOC` 或 `pdf2zh 1.x`
-- **翻译服务**：默认 `deepseek`
-- **DeepSeek API Base URL**：默认 `https://api.deepseek.com`
-- **DeepSeek API Key**
-- **DeepSeek 翻译模型**：默认 `deepseek-flash`
+- **接口类型**：DeepSeek / OpenAI / OpenAI 兼容
+- **API Base URL**：默认 `https://api.deepseek.com`
+- **API Key**
+- **模型名称**：默认 `deepseek-flash`
 
-DeepSeek Key 保存在当前浏览器，并在每次翻译时通过本地代理发送给 pdf2zh；
+海拉会根据 API URL 自动识别 DeepSeek 和 OpenAI；其他地址自动使用
+`openaicompatible`，所以只要服务兼容 OpenAI 的 `/chat/completions` 协议，
+填入 URL、Key 和模型名就能用于 PDF 翻译。
+
+常见示例：
+
+| 服务 | API Base URL | 模型示例 |
+|---|---|---|
+| DeepSeek | `https://api.deepseek.com` | `deepseek-flash` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
+| SiliconFlow | `https://api.siliconflow.cn/v1` | `Qwen/Qwen2.5-7B-Instruct` |
+| 本地 Ollama | `http://127.0.0.1:11434/v1` | `qwen2.5:7b` |
+
+![PDF 翻译 API 配置](docs/preview-pdf-api.png)
+
+Base URL 需要包含服务要求的路径，通常以 `/v1` 结尾；模型需要支持 Chat
+Completions。Key 保存在当前浏览器，并在每次翻译时通过本地代理发送给 pdf2zh；
 本地运行时配置位于 `.runtime`，不会写入项目源码仓库。打开任意论文，点击 PDF
 顶部的「翻译 PDF」即可。服务端网页也可以直接访问 `http://127.0.0.1:8891`。
 
@@ -461,9 +480,9 @@ src/
     PdfViewer.tsx            PDF.js 连续阅读器
     ChatPanel.tsx            对话、快捷动作、输入区
     MarkdownMessage.tsx      Markdown / 表格 / KaTeX
-    DeepSeekSetupModal.tsx   无模型配置时显示 DeepSeek 首次配置
+    DeepSeekSetupModal.tsx   无模型配置时显示翻译 API 首次配置
     PdfTranslationLogsModal.tsx PDF 翻译日志查询、搜索与下载
-    SettingsModal.tsx        模型配置、DeepSeek 翻译配置
+    SettingsModal.tsx        模型配置、翻译 API 配置
     LibraryModal.tsx         本地文库管理
     HistoryDrawer.tsx        单篇论文的对话历史
     TranslationPopover.tsx   划词翻译浮层
@@ -501,7 +520,7 @@ public/pdfjs/                PDF.js 的 cmaps、字体、wasm 资源
 - 正常阅读时，本地 PDF 文件不会上传到远端；它和抽取文本、对话历史一起保存在当前浏览器的 IndexedDB 中。提问时会把解析后的相关文本片段随问题发送给你配置的模型；划词翻译时会发送选中文本、当前页上下文和论文标题。
 - 使用 PDF 全文翻译时，原始 PDF 会发送到你填写的 pdf2zh 服务地址；如果该地址不是本机，文件会离开这台电脑。翻译后的 PDF 保存在当前浏览器，删除论文时会一并删除。
 - 任意 PDF 直链由本机服务下载，下载后的 PDF 与本地文件一样只保存在浏览器 IndexedDB；原始链接会随论文记录保存在浏览器中。服务端不会长期保留远程 PDF。
-- 模型 API Key 默认保存在浏览器；若使用 `.env` 配置服务器 Key，则 Key 只在本地服务进程中。PDF 全文翻译的 DeepSeek Key 保存在浏览器，并由 `.runtime` 内独立 pdf2zh 运行时使用；`.runtime` 不会提交到 Git。
+- 模型 API Key 默认保存在浏览器；若使用 `.env` 配置服务器 Key，则 Key 只在本地服务进程中。PDF 全文翻译的 API Key 保存在浏览器，并由 `.runtime` 内独立 pdf2zh 运行时使用；`.runtime` 不会提交到 Git。
 - 「常用模型」会把名称、Base URL、模型名称和 API Key 一起保存在当前浏览器的 `localStorage`。读取模型列表时，Key 由本地服务转发给所选网关，但不会写入磁盘；清除站点数据会删除常用配置。
 - 导入失败记录保存在浏览器 IndexedDB，包含失败的 PDF 链接、本地文件名和错误信息，最多 200 次；可以在记录窗口清空，不影响论文。
 - 文库没有云同步，换浏览器或清除站点数据后不会保留；如需迁移，请先导出原始 PDF。
@@ -563,6 +582,14 @@ TXT 按行处理，无法识别的行会跳过。请确保 arXiv 链接 / PDF �
 ## 更新日志
 
 后续版本按时间倒序记录在这里。
+
+### v1.0.9 · 2026-10-30
+
+- PDF 全文翻译不再限定 DeepSeek：支持 OpenAI 和任意 OpenAI 兼容 API。
+- 设置页新增「接口类型」，可填任意 API Base URL、Key 和模型名称。
+- 根据 API URL 自动识别 DeepSeek / OpenAI，其他地址自动使用 `openaicompatible`。
+- 旧配置中 service=deepseek 但 URL 为第三方地址时，会自动迁移到兼容接口。
+- 首次启动弹窗同步改为通用翻译 API 配置；仅 DeepSeek 会同时作为默认对话模型。
 
 ### v1.0.8 · 2026-10-30
 
