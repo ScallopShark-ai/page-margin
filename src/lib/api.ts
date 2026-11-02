@@ -107,6 +107,7 @@ export interface ChatRequest {
   paper: PaperMeta;
   pages: PageText[];
   messages: Pick<ChatMessage, 'role' | 'content'>[];
+  notes?: string;
   config: ModelConfig;
   focusPage: number | null;
   signal?: AbortSignal;
@@ -117,6 +118,7 @@ export async function streamPaperChat({
   paper,
   pages,
   messages,
+  notes,
   config,
   focusPage,
   signal,
@@ -135,6 +137,7 @@ export async function streamPaperChat({
         pages: pages.filter((page) => page.text.trim().length > 0),
       },
       messages,
+      notes,
       focusPage,
       config: {
         provider: config.provider,

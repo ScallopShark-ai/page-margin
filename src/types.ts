@@ -128,6 +128,13 @@ export interface StoredPaper {
   archivedFrom?: PaperStatus | null;
 }
 
+export interface PaperNote {
+  paperId: string;
+  markdown: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Folder {
   id: string;
   name: string;

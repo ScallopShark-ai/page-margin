@@ -35,6 +35,7 @@ import { DeepSeekSetupModal } from './components/DeepSeekSetupModal';
 import { ImportHistoryModal } from './components/ImportHistoryModal';
 import { PdfTranslationBackground } from './components/PdfTranslationBackground';
 import { PdfTranslationLogsModal } from './components/PdfTranslationLogsModal';
+import { PaperNotes } from './components/PaperNotes';
 import { PdfViewer } from './components/PdfViewer';
 import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
@@ -72,6 +73,7 @@ import {
   deleteThread as deleteStoredThread,
   getPaperBundle,
   getPaperContent,
+  getPaperNote,
   getPaperRecord,
   getTranslatedPdf,
   isLibrarySupported,
@@ -82,6 +84,7 @@ import {
   movePapersToFolder,
   renameFolder as renameStoredFolder,
   savePaper,
+  savePaperNote,
   setPaperStatus as setStoredPaperStatus,
   saveThread,
   saveTranslatedPdf,
@@ -157,6 +160,18 @@ function friendlyPdfError(error: unknown): string {
 export default function App() {
   const [paper, setPaper] = useState<PaperSession | null>(null);
   const paperRef = useRef<PaperSession | null>(null);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [noteMarkdown, setNoteMarkdown] = useState('');
+  const [noteLoading, setNoteLoading] = useState(false);
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteSavedAt, setNoteSavedAt] = useState<number | null>(null);
+  const noteRef = useRef<{ paperId: string | null; markdown: string }>({
+    paperId: null,
+    markdown: '',
+  });
+  const noteDirtyRef = useRef(false);
+  const noteSaveTimerRef = useRef<number | null>(null);
+  const noteLoadTokenRef = useRef(0);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const streamingRef = useRef(false);
@@ -311,6 +326,98 @@ export default function App() {
       window.setTimeout(() => {
         void oldDoc.destroy().catch(() => undefined);
       }, 300);
+    }
+  };
+
+  const persistPaperNote = async (paperId: string, markdown: string) => {
+    setNoteSaving(true);
+    try {
+      const saved = await savePaperNote(paperId, markdown);
+      if (paperRef.current?.key === paperId) {
+        setNoteSavedAt(saved.updatedAt);
+      }
+    } catch (error) {
+      console.warn('Failed to save paper notes', error);
+      if (paperRef.current?.key === paperId) {
+        setToast('笔记保存失败，请重试');
+      }
+    } finally {
+      if (paperRef.current?.key === paperId) {
+        setNoteSaving(false);
+      }
+    }
+  };
+
+  const scheduleNoteSave = (markdown: string) => {
+    const paperId = paperRef.current?.key;
+    if (!paperId) return;
+    noteRef.current = { paperId, markdown };
+    noteDirtyRef.current = true;
+    if (noteSaveTimerRef.current) {
+      window.clearTimeout(noteSaveTimerRef.current);
+    }
+    noteSaveTimerRef.current = window.setTimeout(() => {
+      noteSaveTimerRef.current = null;
+      const snapshot = noteRef.current;
+      if (!snapshot.paperId || !noteDirtyRef.current) return;
+      noteDirtyRef.current = false;
+      void persistPaperNote(snapshot.paperId, snapshot.markdown);
+    }, 650);
+  };
+
+  const flushNoteSave = () => {
+    if (noteSaveTimerRef.current) {
+      window.clearTimeout(noteSaveTimerRef.current);
+      noteSaveTimerRef.current = null;
+    }
+    const snapshot = noteRef.current;
+    if (!snapshot.paperId || !noteDirtyRef.current) return;
+    noteDirtyRef.current = false;
+    void persistPaperNote(snapshot.paperId, snapshot.markdown);
+  };
+
+  const handleNoteChange = (markdown: string) => {
+    setNoteMarkdown(markdown);
+    setNoteSavedAt(null);
+    scheduleNoteSave(markdown);
+  };
+
+  const applyNoteFromChat = (paperId: string, markdown: string) => {
+    noteRef.current = { paperId, markdown };
+    noteDirtyRef.current = false;
+    if (paperRef.current?.key === paperId) {
+      setNoteMarkdown(markdown);
+      setNoteSavedAt(Date.now());
+    }
+    void persistPaperNote(paperId, markdown);
+  };
+
+  const loadPaperNote = async (paperId: string) => {
+    const token = ++noteLoadTokenRef.current;
+    setNoteLoading(true);
+    setNoteMarkdown('');
+    noteRef.current = { paperId, markdown: '' };
+    noteDirtyRef.current = false;
+    try {
+      const note = await getPaperNote(paperId);
+      if (
+        token !== noteLoadTokenRef.current ||
+        paperRef.current?.key !== paperId
+      ) {
+        return;
+      }
+      const markdown = note?.markdown ?? '';
+      noteRef.current = { paperId, markdown };
+      setNoteMarkdown(markdown);
+      setNoteSavedAt(note?.updatedAt ?? null);
+    } catch (error) {
+      console.warn('Failed to load paper notes', error);
+      if (token === noteLoadTokenRef.current) {
+        setNoteMarkdown('');
+        setNoteSavedAt(null);
+      }
+    } finally {
+      if (token === noteLoadTokenRef.current) setNoteLoading(false);
     }
   };
 
@@ -576,7 +683,11 @@ export default function App() {
     session: PaperSession,
     restored: RestoredThreads = emptyThreadState(),
   ) => {
+    flushNoteSave();
     resetTranslation();
+    setNotesOpen(false);
+    setNoteSavedAt(null);
+    setNoteSaving(false);
     void saveCurrentThreadSnapshot();
     abortRef.current?.abort();
     abortRef.current = null;
@@ -596,6 +707,7 @@ export default function App() {
     setCurrentPage(startPage);
     setJumpRequest(startPage > 1 ? { page: startPage, nonce: Date.now() } : null);
     setMobileTab('paper');
+    void loadPaperNote(session.key);
     const translationJob = translationJobs[session.key];
     if (translationJob?.status === 'running') {
       setTranslationStatus('loading');
@@ -1081,6 +1193,15 @@ export default function App() {
   };
 
   const clearWorkspace = () => {
+    flushNoteSave();
+    noteLoadTokenRef.current += 1;
+    setNotesOpen(false);
+    setNoteLoading(false);
+    setNoteSaving(false);
+    setNoteMarkdown('');
+    setNoteSavedAt(null);
+    noteRef.current = { paperId: null, markdown: '' };
+    noteDirtyRef.current = false;
     resetTranslation();
     abortRef.current?.abort();
     abortRef.current = null;
@@ -1617,7 +1738,22 @@ export default function App() {
     abortRef.current = controller;
 
     let pending = '';
+    let rawStream = '';
+    let noteApplied = false;
     let frame = 0;
+    const extractNoteBlock = (content: string): string => {
+      const match = content.match(
+        /<haila-notes>\s*([\s\S]*?)\s*<\/haila-notes>/i,
+      );
+      if (!match) return content;
+      const updated = match[1].trim();
+      const cleaned = content.replace(match[0], '').trim();
+      if (!updated) return cleaned;
+      applyNoteFromChat(activePaper.key, updated);
+      setToast('已将回答写入阅读笔记');
+      noteApplied = true;
+      return cleaned ? `${cleaned}\n\n> 已更新阅读笔记。` : '已更新阅读笔记。';
+    };
     const flush = () => {
       if (!pending) return;
       const value = pending;
@@ -1641,12 +1777,17 @@ export default function App() {
         paper: activePaper.meta,
         pages: activePaper.pages,
         messages: [...priorHistory, { role: 'user', content: text }],
+        notes:
+          noteRef.current.paperId === activePaper.key
+            ? noteRef.current.markdown
+            : '',
         config: configRef.current,
         focusPage,
         signal: controller.signal,
         onEvent: (event) => {
           if (paperRef.current?.key !== activePaper.key) return;
           if (event.type === 'delta' && event.text) {
+            rawStream += event.text;
             pending += event.text;
             schedule();
           } else if (event.type === 'meta' && event.meta) {
@@ -1663,9 +1804,15 @@ export default function App() {
             }));
           } else if (event.type === 'done') {
             flush();
+            const display = extractNoteBlock(rawStream);
+            if (!noteApplied) {
+              // Still restore the exact final text if the note parser did not
+              // consume a note block (normal chat).
+              rawStream = display;
+            }
             updateAssistant(assistantId, (message) =>
               message.status === 'streaming'
-                ? { ...message, status: 'done' }
+                ? { ...message, content: display, status: 'done' }
                 : message,
             );
           } else if (event.type === 'aborted') {
@@ -1678,9 +1825,20 @@ export default function App() {
         },
       });
       flush();
-      updateAssistant(assistantId, (message) =>
-        message.status === 'streaming' ? { ...message, status: 'done' } : message,
-      );
+      if (!noteApplied) {
+        const display = extractNoteBlock(rawStream);
+        updateAssistant(assistantId, (message) =>
+          message.status === 'streaming'
+            ? { ...message, content: display, status: 'done' }
+            : message,
+        );
+      } else {
+        updateAssistant(assistantId, (message) =>
+          message.status === 'streaming'
+            ? { ...message, status: 'done' }
+            : message,
+        );
+      }
     } catch (error) {
       if (frame) {
         window.cancelAnimationFrame(frame);
@@ -1957,6 +2115,20 @@ export default function App() {
         <div className="header-actions">
           <button
             type="button"
+            className={`notes-toggle-button ${notesOpen ? 'is-active' : ''}`}
+            onClick={() => {
+              if (notesOpen) flushNoteSave();
+              setNotesOpen((open) => !open);
+              setMobileTab('paper');
+            }}
+            aria-pressed={notesOpen}
+            aria-label="阅读笔记"
+            title="阅读笔记"
+          >
+            <FileText size={15} strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
             className="header-library-button"
             onClick={handleOpenLibrary}
             title="我的文库"
@@ -1991,7 +2163,7 @@ export default function App() {
           onClick={() => setMobileTab('paper')}
         >
           <FileText size={15} />
-          论文原文
+          {notesOpen ? '阅读笔记' : '论文原文'}
         </button>
         <button
           type="button"
@@ -2010,7 +2182,21 @@ export default function App() {
         className={`workspace ${mobileTab === 'paper' ? 'show-paper' : 'show-chat'}`}
         style={{ '--split': split } as CSSProperties}
       >
-        <section className="pdf-pane">
+        <section className={`pdf-pane ${notesOpen ? 'notes-pane' : ''}`}>
+          {notesOpen ? (
+            <PaperNotes
+              paperTitle={paper.meta.title}
+              markdown={noteMarkdown}
+              loading={noteLoading}
+              saving={noteSaving}
+              savedAt={noteSavedAt}
+              onChange={handleNoteChange}
+              onClose={() => {
+                flushNoteSave();
+                setNotesOpen(false);
+              }}
+            />
+          ) : (
           <PdfViewer
             doc={paper.doc}
             pdfHref={paper.pdfHref}
@@ -2033,6 +2219,7 @@ export default function App() {
               paper.pages.find((item) => item.page === page)?.text ?? ''
             }
           />
+          )}
         </section>
         <div
           className="splitter"
