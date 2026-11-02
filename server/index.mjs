@@ -37,6 +37,26 @@ try {
   // .env is optional
 }
 
+// start.mjs probes the proxy before spawning this process and sets this flag
+// when it is unreachable. .env is loaded here too, so remove the proxy vars
+// again before pdf2zh (a Python child) inherits them.
+if (process.env.HAILA_PROXY_DISABLED === '1') {
+  for (const key of [
+    'HTTP_PROXY',
+    'HTTPS_PROXY',
+    'ALL_PROXY',
+    'http_proxy',
+    'https_proxy',
+    'all_proxy',
+  ]) {
+    delete process.env[key];
+  }
+  // Python/httpx can otherwise read the Windows registry proxy even when the
+  // environment variables are gone.
+  process.env.NO_PROXY = '*';
+  process.env.no_proxy = '*';
+}
+
 const distDir = path.join(root, 'dist');
 const port = Number(process.env.PORT) || 8787;
 

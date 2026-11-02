@@ -168,6 +168,8 @@ HAILA_NO_PROXY=example.org,.example.org
 
 如果代理启动较晚，重开海拉即可重新探测。arXiv 请求还会自动限速、退避重试并遵守 `Retry-After`。
 
+代理不可用时，启动脚本还会为 pdf2zh 的 Python 子进程移除代理变量并设置 `NO_PROXY=*`，避免 Python `httpx` 继续读取 Windows 注册表中的失效代理，导致 PDF 翻译报 `APIConnectionError: Connection error`。
+
 开发模式（Vite 前端 + 独立 API 服务）：
 
 ```bash
@@ -623,6 +625,7 @@ TXT 按行处理，无法识别的行会跳过。请确保 arXiv 链接 / PDF �
 - 归档会删除浏览器中的 PDF、全文、翻译 PDF，以及本机 arXiv / pdf2zh 缓存，只保留名片、链接和对话。
 - 文库新增状态筛选、卡片状态徽章和状态下拉框；归档视图中点击卡片打开原始链接。
 - 修复本地代理不可用时 arXiv / PDF 全部连接失败：启动时探测代理并自动直连。
+- 修复 pdf2zh Python 子进程仍从 `.env` / Windows 代理注册表读取失效代理，导致翻译 `APIConnectionError` 的问题。
 - 学术站点加入 `NO_PROXY`；可用 `HAILA_NO_PROXY` 追加域名。
 - arXiv 元数据 / PDF 下载增加指数退避、Retry-After、请求限速和 429/5xx 重试。
 - `/abs/` 链接优先读取 abs 页面；普通 PDF 链接增加网络重试和 DNS 重试。

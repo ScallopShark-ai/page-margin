@@ -92,11 +92,31 @@ function probeLocalProxy(raw) {
 if (hasProxy && nodeMajor >= 24) {
   const reachable = await probeLocalProxy(proxyUrl);
   if (reachable) {
+    delete process.env.HAILA_PROXY_DISABLED;
     args.push('--use-env-proxy');
   } else {
     hasProxy = false;
+    process.env.HAILA_PROXY_DISABLED = '1';
+    // Python's OpenAI client (pdf2zh) honors these variables directly, unlike
+    // Node's opt-in --use-env-proxy flag. Remove them so translation also falls
+    // back to a direct connection instead of failing on a dead local proxy.
+    // server/index.mjs reloads .env, so the flag is checked there as well.
+    for (const key of [
+      'HTTP_PROXY',
+      'HTTPS_PROXY',
+      'ALL_PROXY',
+      'http_proxy',
+      'https_proxy',
+      'all_proxy',
+    ]) {
+      delete process.env[key];
+    }
+    // Python's httpx also consults the Windows proxy registry via
+    // urllib.request.getproxies(); NO_PROXY=* disables both sources.
+    process.env.NO_PROXY = '*';
+    process.env.no_proxy = '*';
     console.warn(
-      `[start] 本地代理 ${proxyUrl} 不可连接，已自动改用直连；论文导入不受影响。`,
+      `[start] 本地代理 ${proxyUrl} 不可连接，已自动改用直连；论文导入和 PDF 翻译不受影响。`,
     );
   }
 } else if (hasProxy) {
