@@ -272,6 +272,119 @@ function friendlyUpstreamMessage(status, upstreamBody) {
   return `${prefix}（HTTP ${status}）${upstream ? `：${upstream}` : ''}`;
 }
 
+// ---------------------------------------------------------------------------
+// 采样温度兼容层
+//
+// 旧模型（gpt-4o、deepseek-chat、claude 等）接受 0.3，输出更稳定；
+// 新一代推理模型（GPT-5 / o 系列等）只允许服务端默认值 1，传 0.3 会被
+// 400 直接拒绝，整次请求不生成任何内容。
+//
+// 处理顺序：
+//   1. 按模型名选初始策略，命中已知的固定采样模型就直接发 1；
+//   2. 若猜错（自建网关、新发布的模型），收到 400 且错误信息明确指向
+//      temperature 时自动降级重试：0.3 → 1 → 完全不传该字段；
+//   3. 把最终生效的策略缓存在进程内，同一模型后续请求不再先失败一次。
+// ---------------------------------------------------------------------------
+
+const DEFAULT_TEMPERATURE = 0.3;
+const FIXED_TEMPERATURE = 1;
+
+const TEMPERATURE_POLICIES = {
+  custom: DEFAULT_TEMPERATURE,
+  default: FIXED_TEMPERATURE,
+  omit: undefined,
+};
+
+// 只接受默认采样温度的模型：GPT-5 / GPT-6、o 系列推理模型，以及 DeepSeek 推理模型。
+const FIXED_TEMPERATURE_MODEL =
+  /^(?:gpt-?(?:5|6)|o[1-9]|codex|deepseek-(?:reasoner|r[1-9]))(?:$|[-._/:])/i;
+
+const temperaturePolicyCache = new Map();
+const MAX_TEMPERATURE_CACHE = 100;
+
+function temperatureCacheKey(provider, baseUrl, model) {
+  return `${provider}|${normalizeBase(baseUrl)}|${model.toLowerCase()}`;
+}
+
+// 有些网关把模型名写成 `openai/gpt-5`、`models/gpt-5`，判断时只看最后一段。
+function temperatureModelName(model) {
+  const raw = String(model ?? '').trim();
+  const slash = raw.lastIndexOf('/');
+  return (slash === -1 ? raw : raw.slice(slash + 1)).toLowerCase();
+}
+
+function initialTemperaturePolicy(provider, model) {
+  if (provider === 'anthropic') return 'custom';
+  return FIXED_TEMPERATURE_MODEL.test(temperatureModelName(model))
+    ? 'default'
+    : 'custom';
+}
+
+// 降级顺序：先用初始策略，再退到默认值 1，最后连字段都不发。
+function temperatureAttempts(policy) {
+  if (policy === 'omit') return ['omit'];
+  if (policy === 'default') return ['default', 'omit'];
+  return ['custom', 'default', 'omit'];
+}
+
+function isTemperatureRejection(status, bodyText) {
+  if (status !== 400 && status !== 422) return false;
+  const text = String(bodyText ?? '').toLowerCase();
+  if (!text.includes('temperature')) return false;
+  return (
+    text.includes('unsupported') ||
+    text.includes('not support') ||
+    text.includes('does not support') ||
+    text.includes('only the default') ||
+    text.includes('unrecognized') ||
+    text.includes('unknown parameter') ||
+    text.includes('invalid')
+  );
+}
+
+function buildCompletionBody({ provider, model, system, messages, policy }) {
+  const temperature = TEMPERATURE_POLICIES[policy];
+  const body =
+    provider === 'anthropic'
+      ? { model, max_tokens: 4096, system, messages, stream: true }
+      : {
+          model,
+          stream: true,
+          messages: [{ role: 'system', content: system }, ...messages],
+        };
+  if (temperature !== undefined) body.temperature = temperature;
+  return body;
+}
+
+function rememberTemperaturePolicy(key, policy) {
+  if (
+    temperaturePolicyCache.size >= MAX_TEMPERATURE_CACHE &&
+    !temperaturePolicyCache.has(key)
+  ) {
+    const oldest = temperaturePolicyCache.keys().next().value;
+    if (oldest !== undefined) temperaturePolicyCache.delete(oldest);
+  }
+  temperaturePolicyCache.set(key, policy);
+}
+
+const RETRYABLE_MODEL_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+function retryWaitMs(attempt) {
+  return Math.min(8_000, 900 * 2 ** attempt) + Math.floor(Math.random() * 350);
+}
+
+function retryAfterMs(headers) {
+  const raw = headers?.get?.('retry-after');
+  if (!raw) return 0;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(30_000, Math.max(1000, seconds * 1000));
+  }
+  const at = Date.parse(raw);
+  if (!Number.isFinite(at)) return 0;
+  return Math.min(30_000, Math.max(1000, at - Date.now()));
+}
+
 async function requestCompletion({ provider, apiKey, baseUrl, model, system, messages, signal }) {
   const defaults = providerDefaults(provider);
   const effectiveBase = baseUrl?.trim() || defaults.baseUrl;
@@ -281,7 +394,6 @@ async function requestCompletion({ provider, apiKey, baseUrl, model, system, mes
 
   let url;
   let headers;
-  let body;
   if (provider === 'anthropic') {
     url = anthropicEndpoint(effectiveBase);
     headers = {
@@ -289,25 +401,11 @@ async function requestCompletion({ provider, apiKey, baseUrl, model, system, mes
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
     };
-    body = {
-      model: effectiveModel,
-      max_tokens: 4096,
-      temperature: 0.3,
-      system,
-      messages,
-      stream: true,
-    };
   } else {
     url = openAiEndpoint(effectiveBase);
     headers = {
       'content-type': 'application/json',
       authorization: `Bearer ${apiKey}`,
-    };
-    body = {
-      model: effectiveModel,
-      temperature: 0.3,
-      stream: true,
-      messages: [{ role: 'system', content: system }, ...messages],
     };
   }
 
@@ -339,25 +437,93 @@ async function requestCompletion({ provider, apiKey, baseUrl, model, system, mes
     return aborted;
   };
 
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+  const cacheKey = temperatureCacheKey(provider, effectiveBase, effectiveModel);
+  const policy =
+    temperaturePolicyCache.get(cacheKey) ??
+    initialTemperaturePolicy(provider, effectiveModel);
+  const attempts = temperatureAttempts(policy);
 
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => '');
-      const error = new Error(friendlyUpstreamMessage(response.status, errorBody));
-      error.status = 502;
-      error.upstreamStatus = response.status;
-      throw error;
+  try {
+    for (let index = 0; index < attempts.length; index += 1) {
+      const attempt = attempts[index];
+      const body = buildCompletionBody({
+        provider,
+        model: effectiveModel,
+        system,
+        messages,
+        policy: attempt,
+      });
+
+      let response = null;
+      let networkError = null;
+      for (let retry = 0; retry < 3; retry += 1) {
+        try {
+          response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+        } catch (error) {
+          networkError = error;
+          if (controller.signal.aborted) throw error;
+          if (retry === 2) throw error;
+          console.warn(
+            `[providers] ${effectiveModel} 连接失败，第 ${retry + 1} 次重试：${error?.message ?? error}`,
+          );
+          await new Promise((resolve) =>
+            setTimeout(resolve, retryWaitMs(retry)),
+          );
+          continue;
+        }
+
+        if (response.ok) break;
+        if (
+          !RETRYABLE_MODEL_STATUSES.has(response.status) ||
+          retry === 2
+        ) {
+          break;
+        }
+        await response.text().catch(() => '');
+        const wait =
+          retryAfterMs(response.headers) || retryWaitMs(retry);
+        console.warn(
+          `[providers] ${effectiveModel} 返回 HTTP ${response.status}，${Math.round(wait / 1000)} 秒后重试`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+      if (!response) {
+        throw networkError ?? new Error('无法连接模型服务');
+      }
+
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => '');
+        if (
+          index < attempts.length - 1 &&
+          isTemperatureRejection(response.status, errorBody)
+        ) {
+          if (attempt === 'custom') {
+            console.warn(
+              `[providers] ${effectiveModel} 不接受 temperature=${DEFAULT_TEMPERATURE}，改用默认值 1 重试`,
+            );
+          }
+          continue;
+        }
+        const error = new Error(friendlyUpstreamMessage(response.status, errorBody));
+        error.status = 502;
+        error.upstreamStatus = response.status;
+        throw error;
+      }
+
+      rememberTemperaturePolicy(cacheKey, attempt);
+      if (!response.body) {
+        throw new Error('模型服务未返回内容流');
+      }
+      return { response, effectiveModel, cleanup, abortedError };
     }
-    if (!response.body) {
-      throw new Error('模型服务未返回内容流');
-    }
-    return { response, effectiveModel, cleanup, abortedError };
+    const error = new Error('模型服务拒绝了采样温度参数');
+    error.status = 502;
+    throw error;
   } catch (error) {
     cleanup();
     if (error?.name === 'AbortError' || controller.signal.aborted) {

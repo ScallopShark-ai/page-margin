@@ -55,6 +55,9 @@ if (process.env.HAILA_PROXY_DISABLED === '1') {
   // environment variables are gone.
   process.env.NO_PROXY = '*';
   process.env.no_proxy = '*';
+} else if (process.env.HAILA_EFFECTIVE_NO_PROXY) {
+  process.env.NO_PROXY = process.env.HAILA_EFFECTIVE_NO_PROXY;
+  process.env.no_proxy = process.env.HAILA_EFFECTIVE_NO_PROXY;
 }
 
 const distDir = path.join(root, 'dist');

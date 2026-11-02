@@ -15,12 +15,25 @@ try {
 
 const nodeMajor = Number(process.versions.node.split('.')[0]) || 0;
 const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || '';
-let hasProxy = Boolean(proxyUrl);
-const args = [];
+const proxyConfigured = Boolean(proxyUrl);
+const PROXY_KEYS = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'ALL_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'all_proxy',
+];
+const originalProxyEnv = Object.fromEntries(
+  PROXY_KEYS.map((key) => [key, process.env[key]]),
+);
 
 // A proxy configured for the model gateway should not be able to break paper
 // imports. Keep academic hosts direct, and let users add more via env.
 const PAPER_NO_PROXY = [
+  'localhost',
+  '127.0.0.1',
+  '::1',
   'arxiv.org',
   '.arxiv.org',
   'export.arxiv.org',
@@ -56,7 +69,7 @@ const extraNoProxy = (process.env.HAILA_NO_PROXY || '')
   .split(',')
   .map((item) => item.trim())
   .filter(Boolean);
-process.env.NO_PROXY = [
+const noProxyList = [
   ...new Set([...configuredNoProxy, ...PAPER_NO_PROXY, ...extraNoProxy]),
 ].join(',');
 
@@ -89,65 +102,166 @@ function probeLocalProxy(raw) {
   });
 }
 
-if (hasProxy && nodeMajor >= 24) {
-  const reachable = await probeLocalProxy(proxyUrl);
-  if (reachable) {
-    delete process.env.HAILA_PROXY_DISABLED;
-    args.push('--use-env-proxy');
-  } else {
-    hasProxy = false;
-    process.env.HAILA_PROXY_DISABLED = '1';
-    // Python's OpenAI client (pdf2zh) honors these variables directly, unlike
-    // Node's opt-in --use-env-proxy flag. Remove them so translation also falls
-    // back to a direct connection instead of failing on a dead local proxy.
-    // server/index.mjs reloads .env, so the flag is checked there as well.
-    for (const key of [
-      'HTTP_PROXY',
-      'HTTPS_PROXY',
-      'ALL_PROXY',
-      'http_proxy',
-      'https_proxy',
-      'all_proxy',
-    ]) {
-      delete process.env[key];
+function applyProxyMode(enabled) {
+  if (enabled) {
+    for (const key of PROXY_KEYS) {
+      const value = originalProxyEnv[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     }
-    // Python's httpx also consults the Windows proxy registry via
-    // urllib.request.getproxies(); NO_PROXY=* disables both sources.
-    process.env.NO_PROXY = '*';
-    process.env.no_proxy = '*';
-    console.warn(
-      `[start] 本地代理 ${proxyUrl} 不可连接，已自动改用直连；论文导入和 PDF 翻译不受影响。`,
-    );
+    delete process.env.HAILA_PROXY_DISABLED;
+    process.env.NO_PROXY = noProxyList;
+    process.env.no_proxy = noProxyList;
+    process.env.HAILA_EFFECTIVE_NO_PROXY = noProxyList;
+    return;
   }
-} else if (hasProxy) {
+
+  // Python's OpenAI client (pdf2zh) honors these variables directly, unlike
+  // Node's opt-in --use-env-proxy flag. Remove them so translation also falls
+  // back to a direct connection instead of failing on a dead local proxy.
+  // server/index.mjs reloads .env, so the flag is checked there as well.
+  for (const key of PROXY_KEYS) delete process.env[key];
+  process.env.HAILA_PROXY_DISABLED = '1';
+  // Python/httpx can also read the Windows registry proxy via
+  // urllib.request.getproxies(); NO_PROXY=* disables both sources.
+  process.env.NO_PROXY = '*';
+  process.env.no_proxy = '*';
+  process.env.HAILA_EFFECTIVE_NO_PROXY = '*';
+}
+
+let proxyEnabled = false;
+if (proxyConfigured && nodeMajor >= 24) {
+  proxyEnabled = await probeLocalProxy(proxyUrl);
+} else if (proxyConfigured) {
   console.warn(
     '[start] 检测到代理配置，但当前 Node.js 不支持 --use-env-proxy；请使用 Node.js 24+，或改用可直连的模型网关。',
   );
 }
+applyProxyMode(proxyEnabled);
 console.log(
-  `[start] 代理：${hasProxy ? '已启用' : '直连'}；学术站点始终绕过代理。`,
+  `[start] 代理：${proxyEnabled ? '已启用' : '直连'}；学术站点始终绕过代理。`,
 );
-args.push('server/index.mjs');
+if (proxyConfigured && !proxyEnabled && nodeMajor >= 24) {
+  console.warn(
+    `[start] 本地代理 ${proxyUrl} 不可连接，已自动改用直连；论文导入和 PDF 翻译不受影响。`,
+  );
+}
 
-const child = spawn(process.execPath, args, {
-  cwd: root,
-  env: process.env,
-  stdio: 'inherit',
-});
+let child = null;
+let restarting = false;
+let shuttingDown = false;
 
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => {
-    if (!child.killed) child.kill(signal);
-    const forceExit = setTimeout(() => process.exit(0), 800);
-    forceExit.unref();
+function childArgs() {
+  return proxyEnabled
+    ? ['--use-env-proxy', 'server/index.mjs']
+    : ['server/index.mjs'];
+}
+
+function launchChild() {
+  child = spawn(process.execPath, childArgs(), {
+    cwd: root,
+    env: process.env,
+    stdio: 'inherit',
+  });
+
+  child.on('error', (error) => {
+    console.error('[start] 无法启动服务：', error.message);
+    if (!restarting && !shuttingDown) process.exit(1);
+  });
+
+  child.on('exit', (code, signal) => {
+    child = null;
+    if (restarting || shuttingDown) return;
+    process.exit(code ?? (signal ? 1 : 0));
   });
 }
 
-child.on('error', (error) => {
-  console.error('[start] 无法启动服务：', error.message);
-  process.exit(1);
-});
+function terminateChild() {
+  const target = child;
+  if (!target || target.exitCode !== null) {
+    child = null;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      child = null;
+      resolve();
+    };
+    target.once('exit', finish);
+    if (process.platform === 'win32') {
+      // Kill the Haila process tree as well. The managed pdf2zh Python service
+      // inherits proxy settings at spawn time, so it must restart with Haila
+      // when proxy availability changes.
+      const killer = spawn(
+        'taskkill',
+        ['/pid', String(target.pid), '/T', '/F'],
+        { windowsHide: true, stdio: 'ignore' },
+      );
+      killer.once('error', () => {
+        try {
+          target.kill();
+        } catch {
+          // The process may already be gone.
+        }
+      });
+      killer.once('exit', () => setTimeout(finish, 120));
+    } else {
+      try {
+        target.kill('SIGTERM');
+      } catch {
+        finish();
+      }
+    }
+    setTimeout(finish, 4000).unref();
+  });
+}
 
-child.on('exit', (code, signal) => {
-  process.exit(code ?? (signal ? 1 : 0));
-});
+async function restartForProxy(nextEnabled) {
+  if (restarting || shuttingDown) return;
+  restarting = true;
+  console.warn(
+    `[start] 代理状态变化：${proxyEnabled ? '可用' : '不可用'} → ${nextEnabled ? '可用' : '不可用'}，重启服务以恢复模型连接`,
+  );
+  try {
+    await terminateChild();
+    proxyEnabled = nextEnabled;
+    applyProxyMode(proxyEnabled);
+    launchChild();
+  } finally {
+    restarting = false;
+  }
+}
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    void terminateChild().finally(() => process.exit(0));
+  });
+}
+
+launchChild();
+
+// A local proxy is often started after the browser or laptop. Poll it and
+// respawn Haila (and its pdf2zh child) when the state changes, so chat and
+// translation recover without asking the user to restart manually.
+if (proxyConfigured && nodeMajor >= 24) {
+  let observed = proxyEnabled;
+  let mismatch = 0;
+  setInterval(async () => {
+    if (restarting || shuttingDown) return;
+    const next = await probeLocalProxy(proxyUrl);
+    if (next === observed) {
+      mismatch = 0;
+      return;
+    }
+    mismatch += 1;
+    if (mismatch < 2) return;
+    mismatch = 0;
+    observed = next;
+    await restartForProxy(next);
+  }, 4000);
+}

@@ -166,7 +166,7 @@ NO_PROXY=localhost,127.0.0.1,::1
 HAILA_NO_PROXY=example.org,.example.org
 ```
 
-如果代理启动较晚，重开海拉即可重新探测。arXiv 请求还会自动限速、退避重试并遵守 `Retry-After`。
+启动脚本会在运行中每 4 秒检测一次本地代理。代理晚启动或中途恢复时，会自动重启 Haila 和 pdf2zh，切换到代理模式；代理断开时再切回直连，不需要手动重开。切换时正在进行的一次生成或翻译会被中断。arXiv 请求还会自动限速、退避重试并遵守 `Retry-After`。
 
 代理不可用时，启动脚本还会为 pdf2zh 的 Python 子进程移除代理变量并设置 `NO_PROXY=*`，避免 Python `httpx` 继续读取 Windows 注册表中的失效代理，导致 PDF 翻译报 `APIConnectionError: Connection error`。
 
@@ -629,6 +629,8 @@ TXT 按行处理，无法识别的行会跳过。请确保 arXiv 链接 / PDF �
 - 学术站点加入 `NO_PROXY`；可用 `HAILA_NO_PROXY` 追加域名。
 - arXiv 元数据 / PDF 下载增加指数退避、Retry-After、请求限速和 429/5xx 重试。
 - `/abs/` 链接优先读取 abs 页面；普通 PDF 链接增加网络重试和 DNS 重试。
+- 对话模型请求对网络失败和 429/5xx 自动重试，遵守 `Retry-After`；流式输出开始前的失败不会直接暴露给用户。
+- 运行中自动检测本地代理可用性，代理晚启动时自动重启 Haila / pdf2zh，恢复对话和翻译连接。
 
 ### v1.0.9 · 2026-10-30
 
