@@ -1008,6 +1008,38 @@ a {
   box-shadow: 0 0 0 3px rgba(220, 89, 55, 0.08);
 }
 
+.notes-toggle-button.pdf-notes-toggle {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 24;
+  width: 42px;
+  height: 42px;
+  border-color: rgba(54, 43, 28, 0.26);
+  background: rgba(252, 249, 243, 0.95);
+  color: #615544;
+  box-shadow:
+    0 12px 30px -12px rgba(32, 24, 14, 0.52),
+    0 2px 7px rgba(32, 24, 14, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.notes-toggle-button.pdf-notes-toggle:hover {
+  border-color: rgba(220, 89, 55, 0.55);
+  background: #fffdf8;
+  color: var(--accent-dark);
+  transform: translateY(-1px);
+}
+
+.notes-toggle-button.pdf-notes-toggle.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  box-shadow:
+    0 12px 30px -12px rgba(32, 24, 14, 0.42),
+    0 0 0 3px rgba(220, 89, 55, 0.1);
+}
+
 .new-paper-button,
 .header-model {
   display: inline-flex;
@@ -9428,6 +9460,13 @@ body.is-resizing * {
   .notes-toggle-button {
     width: 30px;
     height: 30px;
+  }
+
+  .notes-toggle-button.pdf-notes-toggle {
+    right: 13px;
+    bottom: 13px;
+    width: 40px;
+    height: 40px;
   }
 
   .paper-notes-actions {

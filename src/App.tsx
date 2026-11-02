@@ -2115,20 +2115,6 @@ export default function App() {
         <div className="header-actions">
           <button
             type="button"
-            className={`notes-toggle-button ${notesOpen ? 'is-active' : ''}`}
-            onClick={() => {
-              if (notesOpen) flushNoteSave();
-              setNotesOpen((open) => !open);
-              setMobileTab('paper');
-            }}
-            aria-pressed={notesOpen}
-            aria-label="阅读笔记"
-            title="阅读笔记"
-          >
-            <FileText size={15} strokeWidth={1.8} />
-          </button>
-          <button
-            type="button"
             className="header-library-button"
             onClick={handleOpenLibrary}
             title="我的文库"
@@ -2220,6 +2206,22 @@ export default function App() {
             }
           />
           )}
+          <button
+            type="button"
+            className={`notes-toggle-button pdf-notes-toggle ${
+              notesOpen ? 'is-active' : ''
+            }`}
+            onClick={() => {
+              if (notesOpen) flushNoteSave();
+              setNotesOpen((open) => !open);
+              setMobileTab('paper');
+            }}
+            aria-pressed={notesOpen}
+            aria-label="阅读笔记"
+            title={notesOpen ? '返回论文原文' : '阅读笔记'}
+          >
+            <FileText size={17} strokeWidth={1.8} />
+          </button>
         </section>
         <div
           className="splitter"
