@@ -61,6 +61,12 @@ import {
 } from './lib/api';
 import { createBackup, restoreBackup } from './lib/backup';
 import {
+  loadAgentStyle,
+  normalizeAgentStyle,
+  saveAgentStyle,
+  type AgentStyle,
+} from './lib/agentStyle';
+import {
   hasSavedConfig,
   hasUsableModel,
   loadConfig,
@@ -186,6 +192,9 @@ export default function App() {
   configRef.current = config;
   const [serverConfig, setServerConfig] = useState<ServerConfig | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [agentStyle, setAgentStyle] = useState<AgentStyle>(() => loadAgentStyle());
+  const agentStyleRef = useRef(agentStyle);
+  agentStyleRef.current = agentStyle;
   const [pdf2zhConfig, setPdf2zhConfig] = useState<Pdf2zhConfig>(() =>
     loadPdf2zhConfig(),
   );
@@ -511,6 +520,12 @@ export default function App() {
       setConfig(nextChat);
     }
     setToast('翻译 API 已保存，可用于 PDF 全文翻译');
+  };
+
+  const handleSaveAgentStyle = (style: AgentStyle) => {
+    const normalized = saveAgentStyle(normalizeAgentStyle(style));
+    setAgentStyle(normalized);
+    setToast('智能体回答风格已保存');
   };
 
   const handleExportBackup = async () => {
@@ -1888,6 +1903,7 @@ export default function App() {
           noteRef.current.paperId === activePaper.key
             ? noteRef.current.markdown
             : '',
+        style: agentStyleRef.current,
         config: configRef.current,
         focusPage,
         signal: controller.signal,
@@ -2146,6 +2162,8 @@ export default function App() {
       onExportBackup={handleExportBackup}
       onRestoreBackup={openBackupRestore}
       backupBusy={backupBusy}
+      agentStyle={agentStyle}
+      onSaveAgentStyle={handleSaveAgentStyle}
     />
   );
 
@@ -2236,6 +2254,15 @@ export default function App() {
           <button type="button" className="new-paper-button" onClick={goHome}>
             <Plus size={15} strokeWidth={2} />
             <span>新建</span>
+          </button>
+          <button
+            type="button"
+            className="header-settings-button"
+            onClick={() => setSettingsOpen(true)}
+            title="设置"
+            aria-label="设置"
+          >
+            <Settings2 size={15} strokeWidth={1.8} />
           </button>
           <button
             type="button"

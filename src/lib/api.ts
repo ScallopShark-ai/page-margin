@@ -8,6 +8,7 @@ import type {
   ServerConfig,
   StreamMeta,
 } from '../types';
+import type { AgentStyle } from './agentStyle';
 
 async function errorFromResponse(response: Response): Promise<Error & { code?: string }> {
   let message = `请求失败（HTTP ${response.status}）`;
@@ -108,6 +109,7 @@ export interface ChatRequest {
   pages: PageText[];
   messages: Pick<ChatMessage, 'role' | 'content'>[];
   notes?: string;
+  style?: AgentStyle;
   config: ModelConfig;
   focusPage: number | null;
   signal?: AbortSignal;
@@ -119,6 +121,7 @@ export async function streamPaperChat({
   pages,
   messages,
   notes,
+  style,
   config,
   focusPage,
   signal,
@@ -138,6 +141,7 @@ export async function streamPaperChat({
       },
       messages,
       notes,
+      style,
       focusPage,
       config: {
         provider: config.provider,

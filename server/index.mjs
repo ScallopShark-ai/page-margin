@@ -269,12 +269,18 @@ app.post('/api/chat', async (req, res, next) => {
     );
     const focusPage = Number(req.body?.focusPage) || null;
     const notes = String(req.body?.notes ?? '').slice(0, 30_000);
+    const style = req.body?.style && typeof req.body.style === 'object'
+      ? {
+          preset: String(req.body.style.preset ?? 'balanced').slice(0, 30),
+          custom: String(req.body.style.custom ?? '').slice(0, 3000),
+        }
+      : {};
     const stats = paperStats(paper);
     const context = buildPaperContext(paper, messages.at(-1)?.content ?? '', {
       maxChars: maxContextChars,
       focusPage,
     });
-    const system = buildSystemPrompt(paper, context, focusPage, notes);
+    const system = buildSystemPrompt(paper, context, focusPage, notes, style);
 
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');

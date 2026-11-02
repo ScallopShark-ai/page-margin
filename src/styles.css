@@ -211,6 +211,25 @@ a {
   background: var(--surface-raised);
 }
 
+.landing-settings-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: rgba(255, 253, 248, 0.55);
+  color: var(--muted-dark);
+}
+
+.landing-settings-button:hover {
+  border-color: rgba(220, 89, 55, 0.38);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
 .status-dot {
   display: inline-block;
   width: 6px;
@@ -977,6 +996,29 @@ a {
   align-items: center;
   gap: 8px;
   margin-left: auto;
+}
+
+.header-settings-button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface-raised);
+  color: var(--muted-dark);
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.header-settings-button:hover {
+  border-color: rgba(220, 89, 55, 0.38);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
 }
 
 .notes-toggle-button {
@@ -9508,6 +9550,147 @@ body.is-resizing * {
   }
 }
 
+/* Agent answer style */
+
+.settings-agent-style {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-agent-style-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-agent-style-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-family: var(--serif);
+  font-size: 14px;
+}
+
+.settings-agent-style-head > span svg {
+  color: var(--accent-dark);
+}
+
+.settings-agent-style-head > em {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 7px;
+  font-style: normal;
+}
+
+.settings-agent-style-lead {
+  margin: 7px 0 10px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.7;
+}
+
+.settings-style-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.settings-style-preset {
+  display: flex;
+  min-height: 55px;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 253, 248, 0.55);
+  text-align: left;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.settings-style-preset:hover {
+  border-color: rgba(220, 89, 55, 0.3);
+}
+
+.settings-style-preset.is-active {
+  border-color: rgba(220, 89, 55, 0.5);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(220, 89, 55, 0.08);
+}
+
+.settings-style-preset strong {
+  color: var(--ink-soft);
+  font-family: var(--serif);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.settings-style-preset.is-active strong {
+  color: var(--accent-dark);
+}
+
+.settings-style-preset span {
+  color: var(--muted);
+  font-size: 7.5px;
+  line-height: 1.45;
+}
+
+.settings-style-custom {
+  margin-top: 10px;
+}
+
+.settings-style-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-style-label em {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 400;
+}
+
+.settings-agent-style .settings-field textarea {
+  width: 100%;
+  min-height: 86px;
+  margin-top: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  outline: 0;
+  resize: vertical;
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+  font-family: var(--sans);
+  font-size: 9.5px;
+  line-height: 1.65;
+}
+
+.settings-agent-style .settings-field textarea:focus {
+  border-color: rgba(220, 89, 55, 0.55);
+  box-shadow: 0 0 0 3px rgba(220, 89, 55, 0.06);
+}
+
+.settings-agent-style-hint {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 7.5px;
+  line-height: 1.55;
+}
+
 /* Backup and restore */
 
 .settings-backup {
@@ -9618,6 +9801,17 @@ body.is-resizing * {
 .deepseek-restore-button:hover {
   border-color: rgba(220, 89, 55, 0.4);
   color: var(--accent-dark);
+}
+
+@media (max-width: 680px) {
+  .settings-style-presets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .landing-settings-button {
+    width: 32px;
+    height: 32px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -44,6 +44,12 @@ import {
   type Pdf2zhConfig,
   type Pdf2zhEngine,
 } from '../lib/pdfTranslation';
+import {
+  AGENT_STYLE_PRESETS,
+  MAX_CUSTOM_STYLE_CHARS,
+  normalizeAgentStyle,
+  type AgentStyle,
+} from '../lib/agentStyle';
 
 interface SettingsModalProps {
   open: boolean;
@@ -57,6 +63,8 @@ interface SettingsModalProps {
   onExportBackup: () => Promise<void>;
   onRestoreBackup: () => void;
   backupBusy: boolean;
+  agentStyle: AgentStyle;
+  onSaveAgentStyle: (style: AgentStyle) => void;
 }
 
 const PROVIDER_ORDER: ProviderId[] = ['deepseek', 'openai', 'anthropic', 'custom'];
@@ -87,9 +95,12 @@ export function SettingsModal({
   onExportBackup,
   onRestoreBackup,
   backupBusy,
+  agentStyle,
+  onSaveAgentStyle,
 }: SettingsModalProps) {
   const [draft, setDraft] = useState<ModelConfig>(config);
   const [pdf2zhDraft, setPdf2zhDraft] = useState<Pdf2zhConfig>(pdf2zhConfig);
+  const [styleDraft, setStyleDraft] = useState<AgentStyle>(agentStyle);
   const [showKey, setShowKey] = useState(false);
   const [showPdfKey, setShowPdfKey] = useState(false);
   const [error, setError] = useState('');
@@ -107,6 +118,7 @@ export function SettingsModal({
     if (!open) return;
     setDraft(config);
     setPdf2zhDraft(pdf2zhConfig);
+    setStyleDraft(agentStyle);
     setShowKey(false);
     setShowPdfKey(false);
     setError('');
@@ -267,6 +279,7 @@ export function SettingsModal({
     if (!next) return;
     setProfiles(upsertSavedModel(profiles, next));
     onSavePdf2zh(nextPdf2zh);
+    onSaveAgentStyle(normalizeAgentStyle(styleDraft));
     onSave(next);
   };
 
@@ -646,6 +659,73 @@ export function SettingsModal({
               </span>
             </div>
           )}
+
+          <section className="settings-agent-style" aria-label="智能体回答风格">
+            <div className="settings-agent-style-head">
+              <span>
+                <Sparkles size={14} />
+                智能体回答风格
+              </span>
+              <em>影响 AI 对话</em>
+            </div>
+            <p className="settings-agent-style-lead">
+              选择一种预设作为回答基调，也可以在自定义描述中写下你希望海拉始终遵循的表达方式。
+              风格会作为上下文随每次提问发送给模型。
+            </p>
+            <div className="settings-style-presets" role="group" aria-label="回答风格预设">
+              {AGENT_STYLE_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={`settings-style-preset ${
+                    styleDraft.preset === preset.id ? 'is-active' : ''
+                  }`}
+                  onClick={() =>
+                    setStyleDraft((current) => ({
+                      ...current,
+                      preset: preset.id,
+                    }))
+                  }
+                  aria-pressed={styleDraft.preset === preset.id}
+                >
+                  <strong>{preset.label}</strong>
+                  <span>{preset.description}</span>
+                </button>
+              ))}
+            </div>
+            <label className="settings-field settings-style-custom">
+              <span className="settings-style-label">
+                {styleDraft.preset === 'custom'
+                  ? '自定义回答风格'
+                  : '自定义补充要求（可选）'}
+                <em>
+                  {styleDraft.custom.length} / {MAX_CUSTOM_STYLE_CHARS}
+                </em>
+              </span>
+              <textarea
+                value={styleDraft.custom}
+                maxLength={MAX_CUSTOM_STYLE_CHARS}
+                onChange={(event) =>
+                  setStyleDraft((current) => ({
+                    ...current,
+                    custom: event.target.value,
+                  }))
+                }
+                placeholder={
+                  styleDraft.preset === 'custom'
+                    ? '例如：用非常直白的中文解释，先给结论，再给一个生活类比；不要使用“本文将”这样的套话，也不要回避不确定性。'
+                    : '可以补充：多举例子、先给一句话结论、避免使用术语、重点解释公式直觉……'
+                }
+                rows={4}
+                aria-label="自定义智能体回答风格"
+              />
+            </label>
+            <p className="settings-agent-style-hint">
+              {styleDraft.preset === 'custom' && !styleDraft.custom.trim()
+                ? '选择「自定义」后请填写描述；否则会回退到「平衡」风格。'
+                : '自定义补充会附加到所选预设；选择「自定义」时则完全使用上面的描述。'}
+            </p>
+          </section>
 
           <section className="settings-pdf2zh" aria-label="PDF 全文翻译">
             <div className="settings-pdf2zh-head">

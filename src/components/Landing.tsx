@@ -10,6 +10,7 @@ import {
   Link2,
   Loader2,
   MessageSquareText,
+  Settings2,
   ShieldCheck,
   Sparkles,
   Upload,
@@ -101,6 +102,15 @@ export function Landing({
             <span className={`status-dot ${modelReady ? 'is-ready' : ''}`} />
             <span>{modelReady ? modelLabel : '配置 AI 模型'}</span>
             <Sparkles size={13} strokeWidth={1.8} />
+          </button>
+          <button
+            className="landing-settings-button"
+            type="button"
+            onClick={onOpenSettings}
+            title="设置"
+            aria-label="设置"
+          >
+            <Settings2 size={15} strokeWidth={1.8} />
           </button>
           <a className="nav-link" href="#how">
             关于海拉
