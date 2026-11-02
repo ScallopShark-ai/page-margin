@@ -98,6 +98,8 @@ export interface LoadProgress {
   percent: number | null;
 }
 
+export type PaperStatus = 'unread' | 'reading' | 'read' | 'archived';
+
 export interface StoredPaper {
   id: string;
   source: 'arxiv' | 'local' | 'web';
@@ -121,6 +123,9 @@ export interface StoredPaper {
   folderId: string | null;
   thumbnail?: string;
   pdfBytes: number;
+  status: PaperStatus;
+  archivedAt?: number | null;
+  archivedFrom?: PaperStatus | null;
 }
 
 export interface Folder {

@@ -2,9 +2,17 @@ import express from 'express';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getArxivPdf, normalizeArxivInput, resolveArxiv } from './arxiv.mjs';
+import {
+  getArxivPdf,
+  normalizeArxivInput,
+  purgeArxivPdf,
+  resolveArxiv,
+} from './arxiv.mjs';
 import { fetchPdfFromUrl } from './pdf-proxy.mjs';
-import { createPdf2zhRouter } from './pdf2zh.mjs';
+import {
+  createPdf2zhRouter,
+  purgePaperTranslationArtifacts,
+} from './pdf2zh.mjs';
 import { startPdf2zhService } from './pdf2zh-autostart.mjs';
 import {
   buildPaperContext,
@@ -171,6 +179,20 @@ app.get('/api/arxiv/pdf', async (req, res, next) => {
       }
       next(error);
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/archive/purge', async (req, res, next) => {
+  try {
+    const paperId = String(req.body?.paperId ?? '').trim().slice(0, 200);
+    const arxivId = String(req.body?.arxivId ?? '').trim().slice(0, 100);
+    const [arxivPurged, translationFiles] = await Promise.all([
+      arxivId ? purgeArxivPdf(arxivId) : Promise.resolve(false),
+      paperId ? purgePaperTranslationArtifacts(paperId) : Promise.resolve(0),
+    ]);
+    res.json({ ok: true, arxivPurged, translationFiles });
   } catch (error) {
     next(error);
   }
@@ -433,15 +455,29 @@ if (existsSync(distDir)) {
   app.use(
     express.static(distDir, {
       index: false,
-      maxAge: '1h',
       setHeaders(res, filePath) {
         if (filePath.endsWith('index.html')) {
-          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Cache-Control', 'no-store');
+          return;
         }
+        // 构建产物都带内容哈希，可以长期缓存；其它静态文件保持 1 小时。
+        if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          return;
+        }
+        res.setHeader('Cache-Control', 'public, max-age=3600');
       },
     }),
   );
-  app.get('*', (_req, res) => {
+  // 资源缺失时绝不能回落到 index.html：浏览器会把 HTML 当成 JS 模块，
+  // 报出 "Failed to fetch dynamically imported module"（PDF.js worker 尤其常见）。
+  app.get(/^\/assets\//, (_req, res) => {
+    res.status(404).type('text/plain').send('Asset not found');
+  });
+  app.get('*', (req, res, next) => {
+    // 只在真正的页面导航时回落到 SPA，带扩展名的文件请求交给 404。
+    if (path.extname(req.path)) return next();
+    res.setHeader('Cache-Control', 'no-store');
     res.sendFile(path.join(distDir, 'index.html'));
   });
 } else {

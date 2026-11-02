@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
+  Archive,
   ArrowLeft,
   ArrowUpRight,
   BookOpen,
   Check,
+  Circle,
   Clock3,
   Folder as FolderIcon,
   FolderInput,
@@ -19,7 +21,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import type { Folder, StoredPaper } from '../types';
+import type { Folder, PaperStatus, StoredPaper } from '../types';
 import { formatRelativeTime, storageUsage } from '../lib/library';
 import { Logo } from './Logo';
 
@@ -36,6 +38,7 @@ interface LibraryModalProps {
   onOpenPaper: (paper: StoredPaper) => void;
   onToggleFavorite: (paper: StoredPaper) => void;
   onDeletePaper: (paper: StoredPaper) => void;
+  onSetPaperStatus: (paper: StoredPaper, status: PaperStatus) => void;
   onCreateFolder: (name: string) => Promise<Folder | null>;
   onRenameFolder: (folder: Folder, name: string) => Promise<boolean>;
   onDeleteFolder: (folder: Folder) => Promise<boolean>;
@@ -45,6 +48,7 @@ interface LibraryModalProps {
 }
 
 type Filter = 'all' | 'arxiv' | 'local' | 'web' | 'favorite';
+type StatusFilter = 'active' | PaperStatus;
 type Sort =
   | 'recent'
   | 'added'
@@ -55,6 +59,25 @@ type Sort =
   | 'published-desc'
   | 'published-asc';
 type FolderSelection = 'all' | 'unfiled' | string;
+
+const STATUS_OPTIONS: {
+  id: StatusFilter;
+  label: string;
+  icon: typeof Circle;
+}[] = [
+  { id: 'active', label: '未归档', icon: BookOpen },
+  { id: 'unread', label: '未读', icon: Circle },
+  { id: 'reading', label: '进行中', icon: Clock3 },
+  { id: 'read', label: '已读', icon: Check },
+  { id: 'archived', label: '归档', icon: Archive },
+];
+
+const PAPER_STATUS_LABELS: Record<PaperStatus, string> = {
+  unread: '未读',
+  reading: '进行中',
+  read: '已读',
+  archived: '归档',
+};
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: '全部' },
@@ -119,6 +142,7 @@ export function LibraryModal({
   onOpenPaper,
   onToggleFavorite,
   onDeletePaper,
+  onSetPaperStatus,
   onCreateFolder,
   onRenameFolder,
   onDeleteFolder,
@@ -128,6 +152,7 @@ export function LibraryModal({
 }: LibraryModalProps) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
   const [sort, setSort] = useState<Sort>('recent');
   const [selectedFolder, setSelectedFolder] = useState<FolderSelection>('all');
   const [storage, setStorage] = useState<{ usage: number; quota: number } | null>(null);
@@ -172,7 +197,7 @@ export function LibraryModal({
     return () => {
       cancelled = true;
     };
-  }, [open, papers.length]);
+  }, [open, papers]);
 
   useEffect(() => {
     if (
@@ -194,11 +219,13 @@ export function LibraryModal({
 
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [filter, search, selectedFolder, sort]);
+  }, [filter, search, selectedFolder, sort, statusFilter]);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     const rows = papers.filter((paper) => {
+      if (statusFilter === 'active' && paper.status === 'archived') return false;
+      if (statusFilter !== 'active' && paper.status !== statusFilter) return false;
       if (selectedFolder === 'unfiled' && paper.folderId) return false;
       if (
         selectedFolder !== 'all' &&
@@ -251,7 +278,7 @@ export function LibraryModal({
       if (sort === 'added') return b.createdAt - a.createdAt;
       return b.lastOpenedAt - a.lastOpenedAt;
     });
-  }, [papers, search, filter, sort, selectedFolder]);
+  }, [papers, search, filter, sort, selectedFolder, statusFilter]);
 
   if (!open) return null;
 
@@ -265,6 +292,13 @@ export function LibraryModal({
     0,
   );
   const favoriteCount = papers.filter((paper) => paper.favorite).length;
+  const statusCounts: Record<StatusFilter, number> = {
+    active: papers.filter((paper) => paper.status !== 'archived').length,
+    unread: papers.filter((paper) => paper.status === 'unread').length,
+    reading: papers.filter((paper) => paper.status === 'reading').length,
+    read: papers.filter((paper) => paper.status === 'read').length,
+    archived: papers.filter((paper) => paper.status === 'archived').length,
+  };
   const unfiledCount = papers.filter((paper) => !paper.folderId).length;
   const folderCount = (folderId: string) =>
     papers.filter((paper) => paper.folderId === folderId).length;
@@ -283,6 +317,8 @@ export function LibraryModal({
         : currentFolder
           ? folderCount(currentFolder.id)
           : 0;
+  const statusLabel =
+    STATUS_OPTIONS.find((item) => item.id === statusFilter)?.label ?? '全部文献';
 
   const submitCreateFolder = async (event: FormEvent) => {
     event.preventDefault();
@@ -671,6 +707,27 @@ export function LibraryModal({
             </label>
           </div>
 
+          <div className="library-status-bar" role="group" aria-label="按阅读状态筛选">
+            <span className="library-status-label">阅读状态</span>
+            {STATUS_OPTIONS.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`library-status-filter ${
+                    statusFilter === item.id ? 'is-active' : ''
+                  } ${item.id === 'archived' ? 'is-archived' : ''}`}
+                  onClick={() => setStatusFilter(item.id)}
+                >
+                  <Icon size={12} />
+                  {item.label}
+                  <em>{statusCounts[item.id]}</em>
+                </button>
+              );
+            })}
+          </div>
+
           {error && <div className="library-error">{error}</div>}
 
           {loading ? (
@@ -722,6 +779,7 @@ export function LibraryModal({
                 onClick={() => {
                   setSearch('');
                   setFilter('all');
+                  setStatusFilter('active');
                 }}
               >
                 清空筛选
@@ -731,12 +789,16 @@ export function LibraryModal({
             <>
               <div className="library-result-line">
                 <span>
-                  {selectedFolderLabel} · {filtered.length} 篇
+                  {selectedFolderLabel} · {statusLabel} · {filtered.length} 篇
                   {search ? ` · “${search}”` : ''}
                 </span>
                 <div className="library-result-tools">
                   <span>
-                    {selectionMode ? '点击卡片选择' : '点击卡片继续阅读'}
+                    {selectionMode
+                      ? '点击卡片选择'
+                      : statusFilter === 'archived'
+                        ? '点击卡片查看归档名片'
+                        : '点击卡片继续阅读'}
                   </span>
                   <button
                     type="button"
@@ -762,8 +824,13 @@ export function LibraryModal({
                       ? Math.min(100, Math.max(0, (paper.lastPage / paper.pageCount) * 100))
                       : 0;
                   const unavailable =
-                    (paper.source === 'local' || paper.source === 'web') &&
-                    paper.pdfBytes === 0;
+                    paper.status === 'archived' ||
+                    ((paper.source === 'local' || paper.source === 'web') &&
+                      paper.pdfBytes === 0);
+                  const archiveLink =
+                    paper.source === 'arxiv' && paper.arxivId
+                      ? `https://arxiv.org/abs/${paper.arxivId}`
+                      : paper.sourceUrl ?? '';
                   return (
                     <article
                       key={paper.id}
@@ -774,15 +841,37 @@ export function LibraryModal({
                       }`}
                       onClick={() => {
                         if (isBusy) return;
-                        if (selectionMode) toggleSelect(paper.id);
-                        else onOpenPaper(paper);
+                        if (selectionMode) {
+                          toggleSelect(paper.id);
+                        } else if (paper.status === 'archived') {
+                          if (archiveLink) {
+                            window.open(
+                              archiveLink,
+                              '_blank',
+                              'noopener,noreferrer',
+                            );
+                          }
+                        } else {
+                          onOpenPaper(paper);
+                        }
                       }}
                       onKeyDown={(event) => {
                         if (event.target !== event.currentTarget) return;
                         if (!isBusy && (event.key === 'Enter' || event.key === ' ')) {
                           event.preventDefault();
-                          if (selectionMode) toggleSelect(paper.id);
-                          else onOpenPaper(paper);
+                          if (selectionMode) {
+                            toggleSelect(paper.id);
+                          } else if (paper.status === 'archived') {
+                            if (archiveLink) {
+                              window.open(
+                                archiveLink,
+                                '_blank',
+                                'noopener,noreferrer',
+                              );
+                            }
+                          } else {
+                            onOpenPaper(paper);
+                          }
                         }
                       }}
                       role="button"
@@ -790,7 +879,9 @@ export function LibraryModal({
                       aria-label={
                         selectionMode
                           ? `${isSelected ? '取消选择' : '选择'}论文：${paper.title}`
-                          : `打开论文：${paper.title}`
+                          : paper.status === 'archived'
+                            ? `归档论文：${paper.title}`
+                            : `打开论文：${paper.title}`
                       }
                       aria-pressed={selectionMode ? isSelected : undefined}
                     >
@@ -823,6 +914,20 @@ export function LibraryModal({
                           >
                             <FolderInput size={13} />
                           </button>
+                          {paper.status !== 'archived' && (
+                            <button
+                              type="button"
+                              className="card-archive-button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onSetPaperStatus(paper, 'archived');
+                              }}
+                              aria-label="归档并删除全文"
+                              title="归档并删除全文"
+                            >
+                              <Archive size={13} />
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="card-delete-button"
@@ -863,8 +968,13 @@ export function LibraryModal({
                                 ? 'WEB'
                                 : 'PDF'}
                           </span>
+                          <span className={`status-badge status-${paper.status}`}>
+                            {PAPER_STATUS_LABELS[paper.status]}
+                          </span>
                           {isCurrent && <span className="current-badge">正在阅读</span>}
-                          {unavailable && <span className="missing-badge">缺少文件</span>}
+                          {unavailable && paper.status !== 'archived' && (
+                            <span className="missing-badge">缺少文件</span>
+                          )}
                         </div>
                         {!selectionMode && (
                           <div className="library-open-hint">
@@ -873,6 +983,15 @@ export function LibraryModal({
                                 <Loader2 size={14} className="spin" />
                                 正在打开
                               </>
+                            ) : paper.status === 'archived' ? (
+                              archiveLink ? (
+                                <>
+                                  查看原文
+                                  <ArrowUpRight size={14} />
+                                </>
+                              ) : (
+                                '仅保留名片'
+                              )
                             ) : unavailable ? (
                               '需重新导入'
                             ) : (
@@ -902,6 +1021,35 @@ export function LibraryModal({
                               ? `网页 PDF · ${paper.pageCount} 页`
                               : `本地 PDF · ${paper.pageCount} 页`}
                         </span>
+                        {!selectionMode && (
+                          <label
+                            className={`library-card-status status-${paper.status}`}
+                            onClick={(event) => event.stopPropagation()}
+                            onMouseDown={(event) => event.stopPropagation()}
+                          >
+                            <span>状态</span>
+                            <select
+                              value={paper.status}
+                              disabled={isBusy}
+                              onChange={(event) => {
+                                event.stopPropagation();
+                                onSetPaperStatus(
+                                  paper,
+                                  event.target.value as PaperStatus,
+                                );
+                              }}
+                              aria-label={`设置《${paper.title}》的阅读状态`}
+                            >
+                              {(
+                                Object.keys(PAPER_STATUS_LABELS) as PaperStatus[]
+                              ).map((status) => (
+                                <option key={status} value={status}>
+                                  {PAPER_STATUS_LABELS[status]}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
                         <h3>{paper.title}</h3>
                         <p className="library-authors">
                           {paper.authors.length > 0
@@ -934,16 +1082,23 @@ export function LibraryModal({
                               ) : null;
                             })()}
                         </div>
-                        <div className="library-progress">
-                          <div className="library-progress-track">
-                            <span style={{ width: `${progress}%` }} />
+                        {paper.status === 'archived' ? (
+                          <div className="library-archived-note">
+                            <Archive size={12} />
+                            全文已删除，仅保留名片和链接
                           </div>
-                          <span>
-                            {paper.pageCount > 0
-                              ? `${paper.lastPage} / ${paper.pageCount} 页`
-                              : '页面信息缺失'}
-                          </span>
-                        </div>
+                        ) : (
+                          <div className="library-progress">
+                            <div className="library-progress-track">
+                              <span style={{ width: `${progress}%` }} />
+                            </div>
+                            <span>
+                              {paper.pageCount > 0
+                                ? `${paper.lastPage} / ${paper.pageCount} 页`
+                                : '页面信息缺失'}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </article>
                   );

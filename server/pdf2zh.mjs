@@ -1,5 +1,6 @@
 import express from 'express';
 import { existsSync, openSync, readSync, closeSync, statSync } from 'node:fs';
+import { readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,6 +11,34 @@ const LOG_SOURCES = {
   pdf2zh: path.join(projectRoot, '.runtime', 'pdf2zh-service.log'),
   haila: path.join(projectRoot, '.runtime', 'haila-boot.log'),
 };
+
+function safePaperKey(value) {
+  return String(value ?? '')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .slice(0, 80);
+}
+
+export async function purgePaperTranslationArtifacts(paperId) {
+  const safe = safePaperKey(paperId);
+  if (!safe) return 0;
+  const translatedDir = path.join(
+    projectRoot,
+    '.runtime',
+    'zotero-pdf2zh',
+    'server',
+    'translated',
+  );
+  const entries = await readdir(translatedDir).catch(() => []);
+  const matches = entries.filter(
+    (name) => name === `${safe}.pdf` || name.startsWith(`${safe}.`),
+  );
+  await Promise.all(
+    matches.map((name) =>
+      rm(path.join(translatedDir, name), { force: true }).catch(() => undefined),
+    ),
+  );
+  return matches.length;
+}
 
 function pdf2zhError(message, status = 400) {
   const error = new Error(message);

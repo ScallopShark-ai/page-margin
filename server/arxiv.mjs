@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -56,6 +56,7 @@ export function normalizeArxivInput(input) {
   }
 
   let candidate = raw;
+  let kind = 'id';
   if (/^https?:\/\//i.test(raw)) {
     let url;
     try {
@@ -65,12 +66,13 @@ export function normalizeArxivInput(input) {
     }
     const host = url.hostname.toLowerCase();
     if (host !== 'arxiv.org' && !host.endsWith('.arxiv.org')) return null;
-    const match = url.pathname.match(/^\/(?:abs|pdf|format)\/(.+)$/i);
+    const match = url.pathname.match(/^\/(abs|pdf|format)\/(.+)$/i);
     if (!match) return null;
+    kind = match[1].toLowerCase();
     try {
-      candidate = decodeURIComponent(match[1]);
+      candidate = decodeURIComponent(match[2]);
     } catch {
-      candidate = match[1];
+      candidate = match[2];
     }
   } else if (/arxiv\.org/i.test(raw)) {
     return null;
@@ -91,6 +93,7 @@ export function normalizeArxivInput(input) {
     id: `${baseId}${version}`,
     baseId,
     version,
+    kind,
   };
 }
 
@@ -117,21 +120,117 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchText(url, timeoutMs = 16000) {
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': USER_AGENT,
-      Accept: 'application/atom+xml, application/xml, text/xml, text/html;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!response.ok) {
-    const error = new Error(`arXiv request failed (${response.status})`);
-    error.status = response.status;
-    throw error;
+const RETRYABLE_STATUSES = new Set([403, 408, 425, 429, 500, 502, 503, 504]);
+const ARXIV_API_INTERVAL_MS = 3000;
+const ARXIV_WEB_INTERVAL_MS = 1200;
+
+// arXiv explicitly asks automated clients to space out API requests. A single
+// FIFO gate also prevents a batch import from firing several metadata/PDF
+// requests at once and immediately getting rate-limited.
+let arxivQueue = Promise.resolve();
+let lastArxivRequestAt = 0;
+
+function arxivIntervalMs(url) {
+  return /\/api\/query/i.test(url) ? ARXIV_API_INTERVAL_MS : ARXIV_WEB_INTERVAL_MS;
+}
+
+function jitter(max = 450) {
+  return Math.floor(Math.random() * max);
+}
+
+function retryAfterMs(headers) {
+  const raw = headers?.get?.('retry-after');
+  if (!raw) return 0;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(60_000, Math.max(1000, seconds * 1000));
   }
+  const at = Date.parse(raw);
+  if (!Number.isFinite(at)) return 0;
+  return Math.min(60_000, Math.max(1000, at - Date.now()));
+}
+
+function backoffMs(attempt, base = 1600, max = 15_000) {
+  return Math.min(max, base * 2 ** attempt) + jitter();
+}
+
+async function scheduledArxivFetch(url, init) {
+  let release;
+  const previous = arxivQueue;
+  arxivQueue = new Promise((resolve) => {
+    release = resolve;
+  });
+  await previous.catch(() => undefined);
+  try {
+    const wait = Math.max(
+      0,
+      lastArxivRequestAt + arxivIntervalMs(url) - Date.now(),
+    );
+    if (wait > 0) await sleep(wait);
+    lastArxivRequestAt = Date.now();
+    return await fetch(url, init);
+  } finally {
+    release();
+  }
+}
+
+async function fetchWithRetry(
+  url,
+  init,
+  { attempts = 4, timeoutMs = 16_000, label = 'arXiv' } = {},
+) {
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    let response;
+    try {
+      response = await scheduledArxivFetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts - 1) break;
+      await sleep(backoffMs(attempt));
+      continue;
+    }
+
+    if (response.ok) return response;
+
+    const retryable = RETRYABLE_STATUSES.has(response.status);
+    if (!retryable || attempt === attempts - 1) {
+      const error = new Error(`${label} 暂时不可用（HTTP ${response.status}）`);
+      error.status = response.status;
+      error.retryAfterMs = retryAfterMs(response.headers);
+      error.attempts = attempt + 1;
+      throw error;
+    }
+
+    const wait = retryAfterMs(response.headers) || backoffMs(attempt);
+    await response.body?.cancel().catch(() => undefined);
+    await sleep(wait);
+  }
+
+  const detail = lastError instanceof Error ? lastError.message : '网络连接失败';
+  const error = new Error(`${label} 连接失败：${detail}`);
+  error.status = 502;
+  error.attempts = attempts;
+  error.cause = lastError;
+  throw error;
+}
+
+async function fetchText(url, timeoutMs = 16_000) {
+  const response = await fetchWithRetry(
+    url,
+    {
+      headers: {
+        'User-Agent': USER_AGENT,
+        Accept: 'application/atom+xml, application/xml, text/xml, text/html;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      redirect: 'follow',
+    },
+    { attempts: 4, timeoutMs, label: 'arXiv' },
+  );
   return response.text();
 }
 
@@ -288,13 +387,43 @@ export async function resolveArxiv(input) {
     };
   }
 
+  const absUrls = [
+    `https://arxiv.org/abs/${info.id}`,
+    `https://export.arxiv.org/abs/${info.id}`,
+  ];
+  const metadataDeadline = Date.now() + 60_000;
+  let lastError;
+
+  async function tryAbsPages() {
+    for (const url of absUrls) {
+      if (Date.now() >= metadataDeadline) break;
+      try {
+        const html = await fetchText(url);
+        const meta = parseAbsHtml(html, info);
+        metaCache.set(info.baseId, { at: Date.now(), meta });
+        return meta;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    return null;
+  }
+
+  // A pasted /abs/ link should try the page the user gave us before spending
+  // an API quota slot. The API remains the fallback because it is structured
+  // and usually more reliable when the HTML page is protected.
+  if (info.kind === 'abs' || info.kind === 'format') {
+    const fromAbs = await tryAbsPages();
+    if (fromAbs) return fromAbs;
+  }
+
   const query = encodeURIComponent(info.baseId);
   const atomEndpoints = [
     `https://export.arxiv.org/api/query?id_list=${query}&max_results=1`,
     `https://arxiv.org/api/query?id_list=${query}&max_results=1`,
   ];
-  let lastError;
   for (const endpoint of atomEndpoints) {
+    if (Date.now() >= metadataDeadline) break;
     try {
       const xml = await fetchText(endpoint);
       const meta = parseAtom(xml, info);
@@ -302,24 +431,25 @@ export async function resolveArxiv(input) {
       return meta;
     } catch (error) {
       lastError = error;
-      await sleep(250);
     }
   }
 
-  const absUrls = [
-    `https://arxiv.org/abs/${info.id}`,
-    `https://export.arxiv.org/abs/${info.id}`,
-  ];
-  for (const url of absUrls) {
-    try {
-      const html = await fetchText(url);
-      const meta = parseAbsHtml(html, info);
-      metaCache.set(info.baseId, { at: Date.now(), meta });
-      return meta;
-    } catch (error) {
-      lastError = error;
-      await sleep(250);
-    }
+  if (info.kind !== 'abs' && info.kind !== 'format') {
+    const fromAbs = await tryAbsPages();
+    if (fromAbs) return fromAbs;
+  }
+
+  // Keep an expired metadata entry as a last resort. This is much better than
+  // discarding the title/abstract just because arXiv is temporarily limiting us.
+  if (cached) {
+    return {
+      ...cached.meta,
+      arxivId: info.id,
+      pdfUrl: `/api/arxiv/pdf?id=${encodeURIComponent(info.id)}`,
+      metadataStale: true,
+      warning:
+        'arXiv 元数据服务暂时不可用，正在使用上次缓存的论文信息；PDF 下载会自动重试。',
+    };
   }
 
   console.warn(
@@ -359,22 +489,22 @@ async function downloadPdf(info) {
   }
 
   let lastError;
+  const deadline = Date.now() + 120_000;
   for (const url of pdfUrlCandidates(info)) {
+    if (Date.now() >= deadline) break;
     try {
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': USER_AGENT,
-          Accept: 'application/pdf,application/octet-stream;q=0.8,*/*;q=0.5',
-          Referer: `https://arxiv.org/abs/${info.baseId}`,
+      const response = await fetchWithRetry(
+        url,
+        {
+          headers: {
+            'User-Agent': USER_AGENT,
+            Accept: 'application/pdf,application/octet-stream;q=0.8,*/*;q=0.5',
+            Referer: `https://arxiv.org/abs/${info.baseId}`,
+          },
+          redirect: 'follow',
         },
-        redirect: 'follow',
-        signal: AbortSignal.timeout(75000),
-      });
-      if (!response.ok) {
-        const error = new Error(`arXiv PDF download failed (${response.status})`);
-        error.status = response.status;
-        throw error;
-      }
+        { attempts: 2, timeoutMs: 50_000, label: 'arXiv PDF' },
+      );
       const buffer = Buffer.from(await response.arrayBuffer());
       if (buffer.length < 1000) throw new Error('arXiv returned an empty PDF');
       if (!looksLikePdf(buffer)) {
@@ -387,14 +517,20 @@ async function downloadPdf(info) {
       return finalPath;
     } catch (error) {
       lastError = error;
-      await sleep(350);
     }
   }
 
+  const limited =
+    lastError?.status === 429 ||
+    lastError?.status === 403 ||
+    /HTTP 429|HTTP 403/i.test(String(lastError?.message ?? ''));
   const error = new Error(
-    'arXiv PDF 下载失败：元数据服务或 PDF 地址暂时不可达，可能触发了访问限制。请稍后重试，或先下载 PDF 拖入。',
+    limited
+      ? 'arXiv 当前限制了访问频率；已自动退避重试仍未成功。请等待 1–5 分钟后重试，或先手动下载 PDF 拖入。'
+      : 'arXiv PDF 下载失败：网络或 PDF 地址暂时不可达；已自动重试。请稍后重试，或先下载 PDF 拖入。',
   );
   error.status = 502;
+  error.code = limited ? 'ARXIV_RATE_LIMITED' : 'ARXIV_UNAVAILABLE';
   error.cause = lastError;
   throw error;
 }
@@ -413,6 +549,15 @@ export async function getArxivPdf(input) {
   });
   inFlightPdf.set(info.id, task);
   return task;
+}
+
+export async function purgeArxivPdf(input) {
+  const info = normalizeArxivInput(input);
+  if (!info) return false;
+  inFlightPdf.delete(info.id);
+  metaCache.delete(info.baseId);
+  await rm(path.join(CACHE_DIR, cacheFilename(info)), { force: true });
+  return true;
 }
 
 export async function readCachedPdf(info) {

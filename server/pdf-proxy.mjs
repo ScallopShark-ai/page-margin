@@ -5,6 +5,58 @@ const MAX_PDF_BYTES = 80 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
 const USER_AGENT =
   'Haila/1.1 (local paper reader; PDF import) Node.js';
+const RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function retryAfterMs(headers) {
+  const raw = headers?.get?.('retry-after');
+  if (!raw) return 0;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(60_000, Math.max(1000, seconds * 1000));
+  }
+  const at = Date.parse(raw);
+  if (!Number.isFinite(at)) return 0;
+  return Math.min(60_000, Math.max(1000, at - Date.now()));
+}
+
+function backoffMs(attempt) {
+  return Math.min(15_000, 1200 * 2 ** attempt) + Math.floor(Math.random() * 350);
+}
+
+async function fetchWithRetry(url, init, signal) {
+  let lastError;
+  const attempts = 3;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    let response;
+    try {
+      const timeout = AbortSignal.timeout(60_000);
+      response = await fetch(url, {
+        ...init,
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      });
+    } catch (error) {
+      if (signal?.aborted || error?.name === 'AbortError') throw error;
+      lastError = error;
+      if (attempt === attempts - 1) throw error;
+      await sleep(backoffMs(attempt));
+      continue;
+    }
+
+    if (response.ok || !RETRYABLE_STATUSES.has(response.status)) {
+      return response;
+    }
+    if (attempt === attempts - 1) return response;
+
+    const wait = retryAfterMs(response.headers) || backoffMs(attempt);
+    await response.body?.cancel().catch(() => undefined);
+    await sleep(wait);
+  }
+  throw lastError ?? new Error('PDF 下载失败');
+}
 
 function httpError(message, status = 400) {
   const error = new Error(message);
@@ -91,10 +143,16 @@ async function assertPublicUrl(raw) {
   }
 
   let records;
-  try {
-    records = await lookup(hostname, { all: true, verbatim: true });
-  } catch {
-    throw httpError('无法解析这个 PDF 链接的域名', 502);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      records = await lookup(hostname, { all: true, verbatim: true });
+      break;
+    } catch (error) {
+      if (attempt === 2) {
+        throw httpError('无法解析这个 PDF 链接的域名', 502);
+      }
+      await sleep(backoffMs(attempt));
+    }
   }
   if (!records.length) throw httpError('无法解析这个 PDF 链接的域名', 502);
   if (records.some((record) => isPrivateAddress(record.address))) {
@@ -178,21 +236,22 @@ export async function fetchPdfFromUrl(rawUrl, { signal } = {}) {
     url = await assertPublicUrl(url);
     let response;
     try {
-      response = await fetch(url, {
-        headers: {
-          'User-Agent': USER_AGENT,
-          Accept: 'application/pdf,application/octet-stream;q=0.9,*/*;q=0.4',
-          'Accept-Language': 'en-US,en;q=0.9',
+      response = await fetchWithRetry(
+        url,
+        {
+          headers: {
+            'User-Agent': USER_AGENT,
+            Accept: 'application/pdf,application/octet-stream;q=0.9,*/*;q=0.4',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
+          redirect: 'manual',
         },
-        redirect: 'manual',
-        signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(60000)])
-          : AbortSignal.timeout(60000),
-      });
+        signal,
+      );
     } catch (error) {
-      if (error?.name === 'AbortError') throw error;
+      if (signal?.aborted || error?.name === 'AbortError') throw error;
       if (error?.name === 'TimeoutError') {
-        throw httpError('PDF 下载超时，请稍后重试', 504);
+        throw httpError('PDF 下载超时，已自动重试仍未成功，请稍后再试', 504);
       }
       throw httpError(
         `无法下载这个 PDF：${error instanceof Error ? error.message : '网络错误'}`,
@@ -222,7 +281,13 @@ export async function fetchPdfFromUrl(rawUrl, { signal } = {}) {
           : response.status === 403
             ? 403
             : 502;
-      throw httpError(`PDF 下载失败（HTTP ${response.status}）`, status);
+      const limited = response.status === 429 || response.status === 503;
+      throw httpError(
+        limited
+          ? `PDF 服务器暂时限流（HTTP ${response.status}），已自动重试仍未成功。请等待 1–5 分钟后再试。`
+          : `PDF 下载失败（HTTP ${response.status}）`,
+        status,
+      );
     }
 
     const buffer = await readBodyWithLimit(response);

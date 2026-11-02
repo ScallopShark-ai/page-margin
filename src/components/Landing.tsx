@@ -52,7 +52,9 @@ export function Landing({
   onOpenSettings,
   onDismissError,
 }: LandingProps) {
-  const recent = papers.slice(0, 3);
+  const recent = papers
+    .filter((paper) => paper.status !== 'archived')
+    .slice(0, 3);
   const [input, setInput] = useState('');
   const [localError, setLocalError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);

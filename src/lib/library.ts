@@ -6,6 +6,7 @@ import type {
   PageText,
   PaperContent,
   PaperMeta,
+  PaperStatus,
   StoredPaper,
 } from '../types';
 
@@ -106,10 +107,22 @@ export function isLibrarySupported(): boolean {
   return typeof indexedDB !== 'undefined';
 }
 
+function isPaperStatus(value: unknown): value is PaperStatus {
+  return (
+    value === 'unread' ||
+    value === 'reading' ||
+    value === 'read' ||
+    value === 'archived'
+  );
+}
+
 function normalizePaper(row: StoredPaper): StoredPaper {
   return {
     ...row,
     folderId: row.folderId ?? null,
+    status: isPaperStatus(row.status) ? row.status : 'unread',
+    archivedAt: row.archivedAt ?? null,
+    archivedFrom: isPaperStatus(row.archivedFrom) ? row.archivedFrom : null,
   };
 }
 
@@ -304,6 +317,18 @@ export async function savePaper(
         : existing?.folderId ?? null,
     thumbnail: input.thumbnail ?? existing?.thumbnail,
     pdfBytes: pdfBlob?.size ?? 0,
+    status:
+      existing?.status === 'archived' && input.pdfBlob !== undefined
+        ? 'unread'
+        : existing?.status ?? 'unread',
+    archivedAt:
+      existing?.status === 'archived' && input.pdfBlob !== undefined
+        ? null
+        : existing?.archivedAt ?? null,
+    archivedFrom:
+      existing?.status === 'archived' && input.pdfBlob !== undefined
+        ? null
+        : existing?.archivedFrom ?? null,
   };
 
   try {
@@ -332,6 +357,9 @@ export async function updatePaper(
       | 'title'
       | 'folderId'
       | 'updatedAt'
+      | 'status'
+      | 'archivedAt'
+      | 'archivedFrom'
     >
   >,
 ): Promise<StoredPaper | null> {
@@ -349,6 +377,54 @@ export async function updatePaper(
   transaction.objectStore(PAPERS).put(next);
   await transactionDone(transaction);
   return next;
+}
+
+export async function setPaperStatus(
+  id: string,
+  status: PaperStatus,
+): Promise<StoredPaper | null> {
+  if (status === 'archived') return archivePaper(id);
+  return updatePaper(id, {
+    status,
+    archivedAt: null,
+    archivedFrom: null,
+  });
+}
+
+export async function archivePaper(id: string): Promise<StoredPaper | null> {
+  const db = await openDatabase();
+  const transaction = db.transaction(
+    [PAPERS, CONTENTS, TRANSLATIONS],
+    'readwrite',
+  );
+  const papers = transaction.objectStore(PAPERS);
+  const existing = (await requestResult(papers.get(id))) as
+    | StoredPaper
+    | undefined;
+  if (!existing) {
+    await transactionDone(transaction);
+    return null;
+  }
+
+  const now = Date.now();
+  const archivedFrom =
+    existing.status && existing.status !== 'archived'
+      ? existing.status
+      : existing.archivedFrom ?? 'unread';
+  const next: StoredPaper = {
+    ...existing,
+    status: 'archived',
+    archivedAt: existing.archivedAt ?? now,
+    archivedFrom,
+    pdfBytes: 0,
+    lastPage: 0,
+    updatedAt: now,
+  };
+  papers.put(next);
+  transaction.objectStore(CONTENTS).delete(id);
+  transaction.objectStore(TRANSLATIONS).delete(id);
+  await transactionDone(transaction);
+  return normalizePaper(next);
 }
 
 export async function movePapersToFolder(

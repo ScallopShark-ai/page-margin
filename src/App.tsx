@@ -25,6 +25,7 @@ import type {
   ModelConfig,
   PaperMeta,
   PaperSession,
+  PaperStatus,
   ServerConfig,
   StoredPaper,
 } from './types';
@@ -49,7 +50,13 @@ import {
   readPdfMetadata,
   renderThumbnail,
 } from './lib/pdf';
-import { fetchPdfBlob, fetchRemotePdf, resolveArxiv, streamPaperChat } from './lib/api';
+import {
+  fetchPdfBlob,
+  fetchRemotePdf,
+  purgeArchivedPaper,
+  resolveArxiv,
+  streamPaperChat,
+} from './lib/api';
 import {
   hasSavedConfig,
   hasUsableModel,
@@ -58,6 +65,7 @@ import {
   saveConfig,
 } from './lib/config';
 import {
+  archivePaper as archiveStoredPaper,
   createFolder as createStoredFolder,
   deleteFolder as deleteStoredFolder,
   deletePaper as deleteStoredPaper,
@@ -74,6 +82,7 @@ import {
   movePapersToFolder,
   renameFolder as renameStoredFolder,
   savePaper,
+  setPaperStatus as setStoredPaperStatus,
   saveThread,
   saveTranslatedPdf,
   threadTitleFromQuestion,
@@ -1243,6 +1252,71 @@ export default function App() {
     }
   };
 
+  const handleSetPaperStatus = async (
+    record: StoredPaper,
+    status: PaperStatus,
+  ) => {
+    if (record.status === status) return;
+    if (status === 'archived') {
+      const confirmed = window.confirm(
+        `归档《${record.title}》？\n\n浏览器中的 PDF 原件、抽取全文和翻译 PDF 会被删除，只保留论文名片和链接信息。对话记录会保留。\n\n之后可以重新导入全文，但归档内容本身无法直接恢复。`,
+      );
+      if (!confirmed) return;
+    } else if (record.status === 'archived') {
+      const confirmed = window.confirm(
+        `《${record.title}》已经归档，全文已从本地删除。\n\n改为「${status === 'unread' ? '未读' : status === 'reading' ? '进行中' : '已读'}」后，需要重新导入 PDF 才能阅读。继续？`,
+      );
+      if (!confirmed) return;
+    }
+
+    const isCurrent = paperRef.current?.key === record.id;
+    setLibraryBusyId(record.id);
+    try {
+      const updated =
+        status === 'archived'
+          ? await archiveStoredPaper(record.id)
+          : await setStoredPaperStatus(record.id, status);
+      if (!updated) throw new Error('论文记录不存在');
+
+      if (status === 'archived') {
+        translationControllersRef.current.get(record.id)?.abort();
+        translationControllersRef.current.delete(record.id);
+        dismissTranslationJob(record.id);
+      }
+
+      setPapers((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+
+      if (isCurrent && status === 'archived') {
+        clearWorkspace();
+        setToast('已归档；PDF、全文和翻译内容已从本地删除');
+      } else if (status === 'archived') {
+        const serverPurged = await purgeArchivedPaper(record.id, record.arxivId);
+        setToast(
+          serverPurged
+            ? '已归档；PDF、全文和翻译内容已删除，仅保留名片'
+            : '已归档；本地内容已删除，服务器缓存清理失败',
+        );
+      } else {
+        setToast(
+          record.status === 'archived'
+            ? '已取消归档；全文需要重新导入'
+            : '阅读状态已更新',
+        );
+      }
+
+      if (status === 'archived' && isCurrent) {
+        void purgeArchivedPaper(record.id, record.arxivId);
+      }
+    } catch (error) {
+      console.warn('Failed to update paper status', error);
+      setToast('阅读状态保存失败，请稍后重试');
+    } finally {
+      setLibraryBusyId(null);
+    }
+  };
+
   const handleDeletePaper = async (record: StoredPaper) => {
     const isCurrent = paperRef.current?.key === record.id;
     const message = isCurrent
@@ -1841,6 +1915,9 @@ export default function App() {
       onOpenPaper={(record) => void handleOpenStoredPaper(record)}
       onToggleFavorite={(record) => void handleToggleFavorite(record)}
       onDeletePaper={(record) => void handleDeletePaper(record)}
+      onSetPaperStatus={(record, status) =>
+        void handleSetPaperStatus(record, status)
+      }
       onCreateFolder={handleCreateFolder}
       onRenameFolder={handleRenameFolder}
       onDeleteFolder={handleDeleteFolder}

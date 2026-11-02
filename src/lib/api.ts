@@ -51,6 +51,22 @@ export async function fetchRemotePdf(url: string, signal?: AbortSignal): Promise
   return fetchPdfBlob(`/api/pdf/fetch?url=${encodeURIComponent(url)}`, signal);
 }
 
+export async function purgeArchivedPaper(
+  paperId: string,
+  arxivId?: string,
+): Promise<boolean> {
+  try {
+    const response = await fetch('/api/archive/purge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paperId, arxivId }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchServerConfig(): Promise<ServerConfig> {
   const response = await fetch('/api/config', { headers: { Accept: 'application/json' } });
   if (!response.ok) throw await errorFromResponse(response);
