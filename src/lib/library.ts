@@ -22,6 +22,17 @@ const TRANSLATIONS = 'translations';
 const NOTES = 'notes';
 const MAX_IMPORT_RUNS = 200;
 
+export const LIBRARY_DB_NAME = DB_NAME;
+export const LIBRARY_STORE_NAMES = [
+  PAPERS,
+  CONTENTS,
+  CONVERSATIONS,
+  FOLDERS,
+  IMPORT_RUNS,
+  TRANSLATIONS,
+  NOTES,
+] as const;
+
 const FOLDER_COLORS = [
   '#c65b3f',
   '#58755f',
@@ -34,6 +45,10 @@ const FOLDER_COLORS = [
 ];
 
 let databasePromise: Promise<IDBDatabase> | null = null;
+
+export function openLibraryDatabase(): Promise<IDBDatabase> {
+  return openDatabase();
+}
 
 function openDatabase(): Promise<IDBDatabase> {
   if (databasePromise) return databasePromise;

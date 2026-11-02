@@ -6,6 +6,7 @@ import {
   KeyRound,
   Languages,
   LockKeyhole,
+  Upload,
 } from 'lucide-react';
 import {
   applyPdf2zhApiUrl,
@@ -17,12 +18,14 @@ interface DeepSeekSetupModalProps {
   open: boolean;
   initial: Pdf2zhConfig;
   onSave: (config: Pdf2zhConfig) => void;
+  onRestoreBackup?: () => void;
 }
 
 export function DeepSeekSetupModal({
   open,
   initial,
   onSave,
+  onRestoreBackup,
 }: DeepSeekSetupModalProps) {
   const [draft, setDraft] = useState<Pdf2zhConfig>(initial);
   const [showKey, setShowKey] = useState(false);
@@ -212,6 +215,16 @@ export function DeepSeekSetupModal({
             <Check size={15} />
             保存并开始使用
           </button>
+          {onRestoreBackup && (
+            <button
+              type="button"
+              className="deepseek-restore-button"
+              onClick={onRestoreBackup}
+            >
+              <Upload size={13} />
+              或从海拉备份恢复
+            </button>
+          )}
         </form>
       </div>
     </div>

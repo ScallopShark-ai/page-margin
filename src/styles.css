@@ -9508,6 +9508,118 @@ body.is-resizing * {
   }
 }
 
+/* Backup and restore */
+
+.settings-backup {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-backup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-backup-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-family: var(--serif);
+  font-size: 14px;
+}
+
+.settings-backup-head > span svg {
+  color: var(--accent-dark);
+}
+
+.settings-backup-head > em {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 7px;
+  font-style: normal;
+}
+
+.settings-backup > p {
+  margin: 7px 0 11px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.7;
+}
+
+.settings-backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.settings-backup-button {
+  display: inline-flex;
+  height: 33px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--muted-dark);
+  font-size: 9px;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.settings-backup-button:hover:not(:disabled) {
+  border-color: rgba(220, 89, 55, 0.4);
+  color: var(--accent-dark);
+}
+
+.settings-backup-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.settings-backup-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 9px 0 0 !important;
+  color: #92724c !important;
+  font-size: 8px !important;
+  line-height: 1.55 !important;
+}
+
+.settings-backup-warning svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.deepseek-restore-button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 0;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.deepseek-restore-button:hover {
+  border-color: rgba(220, 89, 55, 0.4);
+  color: var(--accent-dark);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

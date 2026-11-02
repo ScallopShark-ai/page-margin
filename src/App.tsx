@@ -2,6 +2,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type ChangeEvent,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
@@ -58,6 +59,7 @@ import {
   resolveArxiv,
   streamPaperChat,
 } from './lib/api';
+import { createBackup, restoreBackup } from './lib/backup';
 import {
   hasSavedConfig,
   hasUsableModel,
@@ -220,6 +222,8 @@ export default function App() {
   const [batchSeedFiles, setBatchSeedFiles] = useState<File[]>([]);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [pdfLogsOpen, setPdfLogsOpen] = useState(false);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const backupInputRef = useRef<HTMLInputElement>(null);
   const [threads, setThreads] = useState<ConversationThread[]>([]);
   const threadsRef = useRef<ConversationThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -507,6 +511,89 @@ export default function App() {
       setConfig(nextChat);
     }
     setToast('翻译 API 已保存，可用于 PDF 全文翻译');
+  };
+
+  const handleExportBackup = async () => {
+    if (!isLibrarySupported()) {
+      setToast('当前浏览器不支持本地备份');
+      return;
+    }
+    setBackupBusy(true);
+    try {
+      if (noteSaveTimerRef.current) {
+        window.clearTimeout(noteSaveTimerRef.current);
+        noteSaveTimerRef.current = null;
+      }
+      if (paperRef.current && noteDirtyRef.current) {
+        noteDirtyRef.current = false;
+        await savePaperNote(paperRef.current.key, noteRef.current.markdown);
+      }
+      const currentPaper = paperRef.current;
+      const { blob, filename } = await createBackup({
+        paperId: currentPaper?.key ?? null,
+        page: currentPageRef.current,
+        notesOpen,
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      setToast('完整备份已导出；文件包含 API Key，请妥善保存');
+    } catch (error) {
+      console.error('Failed to export backup', error);
+      setToast(
+        error instanceof Error ? `备份失败：${error.message}` : '备份失败，请重试',
+      );
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const openBackupRestore = () => {
+    if (backupBusy) return;
+    backupInputRef.current?.click();
+  };
+
+  const handleBackupFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (
+      !window.confirm(
+        '从备份恢复会覆盖当前浏览器中的论文、PDF、对话、笔记、翻译和模型设置。确定继续吗？',
+      )
+    ) {
+      return;
+    }
+    setBackupBusy(true);
+    try {
+      const restored = await restoreBackup(file);
+      setToast('备份恢复完成，正在重新打开…');
+      const params = new URLSearchParams();
+      if (restored.lastSession.paperId) {
+        params.set('paper', restored.lastSession.paperId);
+        if (restored.lastSession.notesOpen) params.set('notes', '1');
+        if (restored.lastSession.page > 0) {
+          params.set('page', String(restored.lastSession.page));
+        }
+      }
+      const target = params.toString()
+        ? `/?${params.toString()}`
+        : '/';
+      window.setTimeout(() => window.location.replace(target), 300);
+    } catch (error) {
+      console.error('Failed to restore backup', error);
+      setToast(
+        error instanceof Error
+          ? `恢复失败：${error.message}`
+          : '恢复失败，备份文件可能已损坏',
+      );
+      setBackupBusy(false);
+    }
   };
 
   const handleTranslatePdf = async () => {
@@ -1606,9 +1693,29 @@ export default function App() {
   useEffect(() => {
     if (bootRef.current) return;
     bootRef.current = true;
-    void refreshLibrary(true);
-    const query = new URLSearchParams(window.location.search).get('arxiv');
-    if (query) void openArxiv(query);
+    const params = new URLSearchParams(window.location.search);
+    const arxivQuery = params.get('arxiv');
+    const paperQuery = params.get('paper');
+    void (async () => {
+      await refreshLibrary(true);
+      if (arxivQuery) {
+        await openArxiv(arxivQuery);
+        return;
+      }
+      if (!paperQuery) return;
+      const record = await getPaperRecord(paperQuery);
+      if (!record) return;
+      await handleOpenStoredPaper(record);
+      const restoredPage = Number(params.get('page'));
+      if (Number.isFinite(restoredPage) && restoredPage > 1) {
+        setCurrentPage(restoredPage);
+        setJumpRequest({ page: restoredPage, nonce: Date.now() });
+      }
+      if (params.get('notes') === '1') {
+        setNotesOpen(true);
+        setMobileTab('paper');
+      }
+    })();
 
     let cancelled = false;
     void fetch('/api/config')
@@ -2036,6 +2143,9 @@ export default function App() {
         setSettingsOpen(false);
         setPdfLogsOpen(true);
       }}
+      onExportBackup={handleExportBackup}
+      onRestoreBackup={openBackupRestore}
+      backupBusy={backupBusy}
     />
   );
 
@@ -2305,6 +2415,15 @@ export default function App() {
         open={needsDeepseekSetup}
         initial={deepseekSetupInitial}
         onSave={handleSavePdf2zhConfig}
+        onRestoreBackup={openBackupRestore}
+      />
+
+      <input
+        ref={backupInputRef}
+        type="file"
+        accept=".zip,application/zip"
+        hidden
+        onChange={(event) => void handleBackupFile(event)}
       />
 
       <PdfTranslationLogsModal

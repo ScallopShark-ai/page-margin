@@ -4,6 +4,8 @@ import {
   Bookmark,
   Bug,
   Check,
+  Database,
+  Download,
   ExternalLink,
   Eye,
   EyeOff,
@@ -15,8 +17,10 @@ import {
   RefreshCw,
   Search,
   Server,
+  ShieldAlert,
   Sparkles,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import { fetchModelList } from '../lib/api';
@@ -50,6 +54,9 @@ interface SettingsModalProps {
   onSave: (config: ModelConfig) => void;
   onSavePdf2zh: (config: Pdf2zhConfig) => void;
   onOpenPdfLogs: () => void;
+  onExportBackup: () => Promise<void>;
+  onRestoreBackup: () => void;
+  backupBusy: boolean;
 }
 
 const PROVIDER_ORDER: ProviderId[] = ['deepseek', 'openai', 'anthropic', 'custom'];
@@ -77,6 +84,9 @@ export function SettingsModal({
   onSave,
   onSavePdf2zh,
   onOpenPdfLogs,
+  onExportBackup,
+  onRestoreBackup,
+  backupBusy,
 }: SettingsModalProps) {
   const [draft, setDraft] = useState<ModelConfig>(config);
   const [pdf2zhDraft, setPdf2zhDraft] = useState<Pdf2zhConfig>(pdf2zhConfig);
@@ -792,6 +802,44 @@ export function SettingsModal({
               其他服务请选择「OpenAI 兼容 / 其他模型」并填写完整的 Base URL
               （通常以 <code>/v1</code> 结尾）。Key 保存在当前浏览器，用于整篇
               PDF 翻译；本地运行时不写入项目仓库。
+            </p>
+          </section>
+
+          <section className="settings-backup" aria-label="数据备份与恢复">
+            <div className="settings-backup-head">
+              <span>
+                <Database size={14} />
+                数据备份
+              </span>
+              <em>跨设备</em>
+            </div>
+            <p>
+              把所有论文、PDF、翻译、对话、笔记和模型设置打包成一个本地文件。
+              在另一台设备打开海拉后，恢复这个文件即可继续原来的阅读状态。
+            </p>
+            <div className="settings-backup-actions">
+              <button
+                type="button"
+                className="settings-backup-button"
+                onClick={() => void onExportBackup()}
+                disabled={backupBusy}
+              >
+                <Download size={14} />
+                {backupBusy ? '正在处理…' : '导出完整备份'}
+              </button>
+              <button
+                type="button"
+                className="settings-backup-button"
+                onClick={onRestoreBackup}
+                disabled={backupBusy}
+              >
+                <Upload size={14} />
+                从备份恢复
+              </button>
+            </div>
+            <p className="settings-backup-warning">
+              <ShieldAlert size={13} />
+              备份文件包含论文 PDF、对话、笔记和 API Key，请像密码一样妥善保存。
             </p>
           </section>
 
