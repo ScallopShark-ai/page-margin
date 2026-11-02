@@ -9,18 +9,31 @@ import {
   Copy,
   FlaskConical,
   History,
+  ImagePlus,
   KeyRound,
   Lightbulb,
   ListTree,
+  Loader2,
   RotateCcw,
   Send,
   Sparkles,
   Square,
   SquarePen,
+  X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { ChatMessage, ConversationThread, PaperSession } from '../types';
+import type {
+  ChatImage,
+  ChatMessage,
+  ConversationThread,
+  PaperSession,
+} from '../types';
 import { shortAuthors } from '../lib/pdf';
+import {
+  MAX_CHAT_IMAGES,
+  imageFilesFromClipboard,
+  prepareChatImage,
+} from '../lib/imageAttachment';
 import { MarkdownMessage } from './MarkdownMessage';
 import { HistoryDrawer } from './HistoryDrawer';
 
@@ -34,7 +47,7 @@ interface ChatPanelProps {
   threads: ConversationThread[];
   activeThreadId: string | null;
   historyOpen: boolean;
-  onSend: (text: string, focusPage: number | null) => void;
+  onSend: (text: string, images: ChatImage[], focusPage: number | null) => void;
   onStop: () => void;
   onRetry: () => void;
   onNewThread: () => void;
@@ -130,6 +143,22 @@ function MessageItem({
   if (message.role === 'user') {
     return (
       <article className="message message--user">
+        {message.images && message.images.length > 0 && (
+          <div className="user-message-images">
+            {message.images.map((image) => (
+              <a
+                key={image.id}
+                className="user-message-image"
+                href={image.dataUrl}
+                target="_blank"
+                rel="noreferrer"
+                title="打开图片"
+              >
+                <img src={image.dataUrl} alt={image.name || '用户图片'} />
+              </a>
+            ))}
+          </div>
+        )}
         <div className="user-bubble">{message.content}</div>
       </article>
     );
@@ -241,10 +270,14 @@ export function ChatPanel({
   onRenameThread,
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
+  const [images, setImages] = useState<ChatImage[]>([]);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState('');
   const [includePage, setIncludePage] = useState(false);
   const [abstractOpen, setAbstractOpen] = useState(false);
   const [pinned, setPinned] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
 
@@ -277,8 +310,33 @@ export function ChatPanel({
     list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' });
   };
 
+  const addImageFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    setImageError('');
+    if (images.length >= MAX_CHAT_IMAGES) {
+      setImageError(`每次最多附 ${MAX_CHAT_IMAGES} 张图片`);
+      return;
+    }
+    setImageBusy(true);
+    const accepted: ChatImage[] = [];
+    let firstError = '';
+    for (const file of files.slice(0, MAX_CHAT_IMAGES - images.length)) {
+      try {
+        accepted.push(await prepareChatImage(file));
+      } catch (error) {
+        firstError =
+          error instanceof Error ? error.message : '图片读取失败，请换一张';
+      }
+    }
+    if (accepted.length > 0) {
+      setImages((current) => [...current, ...accepted].slice(0, MAX_CHAT_IMAGES));
+    }
+    if (firstError) setImageError(firstError);
+    setImageBusy(false);
+  };
+
   const send = (text: string, focusPage: number | null = includePage ? currentPage : null) => {
-    if (!text.trim() || streaming) return;
+    if ((!text.trim() && images.length === 0) || streaming || imageBusy) return;
     if (!modelReady) {
       setInput(text);
       onOpenSettings();
@@ -286,8 +344,10 @@ export function ChatPanel({
     }
     pinnedRef.current = true;
     setPinned(true);
-    onSend(text.trim(), focusPage);
+    onSend(text.trim() || '请分析这张图片。', images, focusPage);
     setInput('');
+    setImages([]);
+    setImageError('');
     window.requestAnimationFrame(() => {
       textareaRef.current?.focus();
     });
@@ -473,17 +533,81 @@ export function ChatPanel({
       )}
 
       <div className="composer-wrap">
-        <div className={`composer ${includePage ? 'has-page-context' : ''}`}>
+        <div
+          className={`composer ${includePage ? 'has-page-context' : ''} ${
+            images.length > 0 ? 'has-images' : ''
+          }`}
+          onDragOver={(event) => {
+            if (
+              Array.from(event.dataTransfer.items).some(
+                (item) => item.kind === 'file' && item.type.startsWith('image/'),
+              )
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          }}
+          onDrop={(event) => {
+            const files = Array.from(event.dataTransfer.files).filter((file) =>
+              file.type.startsWith('image/'),
+            );
+            if (files.length === 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            void addImageFiles(files);
+          }}
+        >
+          {(images.length > 0 || imageBusy || imageError) && (
+            <div className="composer-image-area">
+              <div className="composer-image-strip">
+                {images.map((image) => (
+                  <div className="composer-image" key={image.id}>
+                    <img src={image.dataUrl} alt={image.name || '待发送图片'} />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setImages((current) =>
+                          current.filter((item) => item.id !== image.id),
+                        )
+                      }
+                      aria-label="移除图片"
+                      title="移除图片"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+                {imageBusy && (
+                  <div className="composer-image-loading">
+                    <Loader2 size={14} className="spin" />
+                  </div>
+                )}
+              </div>
+              {imageError ? (
+                <span className="composer-image-error">{imageError}</span>
+              ) : (
+                <span className="composer-image-hint">
+                  图片会随本次问题发送给模型，需要模型支持视觉输入
+                </span>
+              )}
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             value={input}
             rows={1}
             placeholder={
               modelReady
-                ? '追问方法细节、实验设置，或让它解释一段公式…'
+                ? '追问方法细节、实验设置，或粘贴图片让 AI 读取…'
                 : '配置模型后，在这里向论文提问…'
             }
             onChange={(event) => setInput(event.target.value)}
+            onPaste={(event) => {
+              const files = imageFilesFromClipboard(event.clipboardData);
+              if (files.length === 0) return;
+              event.preventDefault();
+              void addImageFiles(files);
+            }}
             onKeyDown={(event) => {
               if (
                 event.key === 'Enter' &&
@@ -508,6 +632,31 @@ export function ChatPanel({
                 <Bookmark size={13} />
                 结合第 {currentPage} 页
               </button>
+              <button
+                type="button"
+                className={`image-attach-button ${
+                  images.length > 0 ? 'is-active' : ''
+                }`}
+                onClick={() => imageInputRef.current?.click()}
+                disabled={imageBusy || images.length >= MAX_CHAT_IMAGES}
+                title="添加图片（也可以直接粘贴）"
+                aria-label="添加图片"
+              >
+                <ImagePlus size={13} />
+                <span>{images.length > 0 ? `${images.length}/4` : '图片'}</span>
+              </button>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                multiple
+                hidden
+                onChange={(event) => {
+                  const files = Array.from(event.target.files ?? []);
+                  event.target.value = '';
+                  void addImageFiles(files);
+                }}
+              />
             </div>
             <div className="composer-send">
               <span className="keyboard-hint">Enter 发送 · Shift + Enter 换行</span>
@@ -521,7 +670,7 @@ export function ChatPanel({
                   type="button"
                   className="send-button"
                   onClick={submit}
-                  disabled={!input.trim()}
+                  disabled={(!input.trim() && images.length === 0) || imageBusy}
                   aria-label="发送问题"
                 >
                   <Send size={16} />

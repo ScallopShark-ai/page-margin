@@ -81,10 +81,18 @@ export interface StreamMeta {
   note?: string;
 }
 
+export interface ChatImage {
+  id: string;
+  dataUrl: string;
+  mimeType: string;
+  name?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  images?: ChatImage[];
   status?: 'streaming' | 'done' | 'error' | 'stopped';
   error?: string;
   errorCode?: string;

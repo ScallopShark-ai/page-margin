@@ -612,11 +612,19 @@ export function threadTitleFromQuestion(text: string): string {
 
 export function messagesForStorage(messages: ChatMessage[]): ChatMessage[] {
   return messages
-    .filter((message) => message.content.trim().length > 0 || message.status === 'error')
+    .filter(
+      (message) =>
+        message.content.trim().length > 0 ||
+        (message.images?.length ?? 0) > 0 ||
+        message.status === 'error',
+    )
     .map((message) => ({
       id: message.id,
       role: message.role,
       content: message.content,
+      ...(message.images && message.images.length > 0
+        ? { images: message.images }
+        : {}),
       status: message.status,
       error: message.error,
       errorCode: message.errorCode,

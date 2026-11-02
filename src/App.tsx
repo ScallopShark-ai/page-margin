@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
+  ChatImage,
   ChatMessage,
   ConversationThread,
   Folder,
@@ -1796,6 +1797,7 @@ export default function App() {
     text: string,
     focusPage: number | null,
     baseMessages: ChatMessage[] = messages,
+    images: ChatImage[] = [],
   ) => {
     const activePaper = paperRef.current;
     if (!activePaper || streamingRef.current) return;
@@ -1830,6 +1832,7 @@ export default function App() {
       id: makeId(),
       role: 'user',
       content: text,
+      ...(images.length > 0 ? { images } : {}),
       status: 'done',
       createdAt: Date.now(),
     };
@@ -1842,6 +1845,18 @@ export default function App() {
       createdAt: Date.now(),
     };
 
+    const lastImageMessage =
+      images.length === 0
+        ? [...baseMessages]
+            .reverse()
+            .find(
+              (message) =>
+                message.role === 'user' &&
+                (message.images?.length ?? 0) > 0 &&
+                message.status !== 'error' &&
+                message.status !== 'stopped',
+            )
+        : null;
     const priorHistory = baseMessages
       .filter(
         (message) =>
@@ -1849,7 +1864,13 @@ export default function App() {
           message.status !== 'error' &&
           message.status !== 'stopped',
       )
-      .map((message) => ({ role: message.role, content: message.content }));
+      .map((message) => ({
+        role: message.role,
+        content: message.content,
+        ...(message.id === lastImageMessage?.id && message.images
+          ? { images: message.images }
+          : {}),
+      }));
 
     const nextMessages = [...baseMessages, userMessage, assistantMessage];
     messagesRef.current = nextMessages;
@@ -1898,7 +1919,14 @@ export default function App() {
       await streamPaperChat({
         paper: activePaper.meta,
         pages: activePaper.pages,
-        messages: [...priorHistory, { role: 'user', content: text }],
+        messages: [
+          ...priorHistory,
+          {
+            role: 'user',
+            content: text,
+            ...(images.length > 0 ? { images } : {}),
+          },
+        ],
         notes:
           noteRef.current.paperId === activePaper.key
             ? noteRef.current.markdown
@@ -1994,12 +2022,16 @@ export default function App() {
     }
   };
 
-  const sendMessage = (text: string, focusPage: number | null) => {
+  const sendMessage = (
+    text: string,
+    images: ChatImage[],
+    focusPage: number | null,
+  ) => {
     if (!modelReady) {
       setSettingsOpen(true);
       return;
     }
-    void runChat(text, focusPage, messages);
+    void runChat(text, focusPage, messages, images);
   };
 
   const stopStreaming = () => {
@@ -2095,7 +2127,7 @@ export default function App() {
     const lastUser = next[next.length - 1];
     if (!lastUser || lastUser.role !== 'user') return;
     next.pop();
-    void runChat(lastUser.content, null, next);
+    void runChat(lastUser.content, null, next, lastUser.images ?? []);
   };
 
   const jumpToPage = (page: number) => {

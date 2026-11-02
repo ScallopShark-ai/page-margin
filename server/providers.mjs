@@ -342,15 +342,65 @@ function isTemperatureRejection(status, bodyText) {
   );
 }
 
+function formatImageMessages(provider, messages) {
+  return messages.map((message) => {
+    if (!Array.isArray(message.images) || message.images.length === 0) {
+      return { role: message.role, content: message.content };
+    }
+    if (provider === 'anthropic') {
+      const parts = message.content
+        ? [{ type: 'text', text: message.content }]
+        : [{ type: 'text', text: '请分析这些图片。' }];
+      for (const image of message.images) {
+        const match = String(image.dataUrl ?? '').match(
+          /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]+)$/i,
+        );
+        if (!match) continue;
+        parts.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: match[1],
+            data: match[2].replace(/\s+/g, ''),
+          },
+        });
+      }
+      return { role: message.role, content: parts };
+    }
+
+    const parts = [
+      {
+        type: 'text',
+        text: message.content || '请分析这些图片。',
+      },
+      ...message.images.map((image) => ({
+        type: 'image_url',
+        image_url: { url: image.dataUrl },
+      })),
+    ];
+    return { role: message.role, content: parts };
+  });
+}
+
 function buildCompletionBody({ provider, model, system, messages, policy }) {
   const temperature = TEMPERATURE_POLICIES[policy];
+  const providerMessages = formatImageMessages(provider, messages);
   const body =
     provider === 'anthropic'
-      ? { model, max_tokens: 4096, system, messages, stream: true }
+      ? {
+          model,
+          max_tokens: 4096,
+          system,
+          messages: providerMessages,
+          stream: true,
+        }
       : {
           model,
           stream: true,
-          messages: [{ role: 'system', content: system }, ...messages],
+          messages: [
+            { role: 'system', content: system },
+            ...providerMessages,
+          ],
         };
   if (temperature !== undefined) body.temperature = temperature;
   return body;
