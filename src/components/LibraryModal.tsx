@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   Archive,
   ArrowLeft,
@@ -165,6 +165,9 @@ export function LibraryModal({
   const [moveTarget, setMoveTarget] = useState<string | 'unfiled' | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const libraryScrollRef = useRef<HTMLDivElement>(null);
+  const libraryScrollTopRef = useRef(0);
+  const libraryScrollRestoredRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -187,6 +190,29 @@ export function LibraryModal({
       document.body.style.overflow = previousOverflow;
     };
   }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open) {
+      libraryScrollRestoredRef.current = false;
+      return;
+    }
+    if (libraryScrollRestoredRef.current || loading) return;
+    const element = libraryScrollRef.current;
+    if (!element) return;
+    libraryScrollRestoredRef.current = true;
+    const target = libraryScrollTopRef.current;
+    if (target <= 0) return;
+    const frame = window.requestAnimationFrame(() => {
+      element.scrollTop = target;
+    });
+    const timer = window.setTimeout(() => {
+      element.scrollTop = target;
+    }, 80);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [open, loading, papers.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -448,7 +474,13 @@ export function LibraryModal({
         </button>
       </header>
 
-      <div className="library-scroll">
+      <div
+        className="library-scroll"
+        ref={libraryScrollRef}
+        onScroll={(event) => {
+          libraryScrollTopRef.current = event.currentTarget.scrollTop;
+        }}
+      >
         <main className="library-main">
           <div className="library-hero">
             <div>
