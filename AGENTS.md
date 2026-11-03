@@ -170,13 +170,19 @@ Agent 没有交互式终端时，不要使用 `Read-Host` 或 `npm run configure
 
 ### 3.3 非交互配置（可选）
 
-如果用户已经导出环境变量，也可以交给仓库脚本：
+`npm run deploy -- --skip-api` 只读取已经存在的 `.env`，不会从 `$env:AI_API_KEY` 自动创建 `.env`。
+
+如果用户已经把 Key 放在 Agent 的秘密变量或临时环境变量中，可以只在当前执行进程中使用它来写 `.env`：
 
 ```powershell
-$env:AI_API_KEY
+# 不要把真实 Key 直接放进命令历史或日志
+$apiKey = $env:HAILA_API_KEY
+if (-not $apiKey) { throw '缺少 HAILA_API_KEY' }
 ```
 
-但持久运行的服务仍然需要 `.env`。优先直接写 `.env`，不要依赖当前 shell 的环境变量。
+然后使用 3.1 的更新函数写入 `.env`。服务重启后仍以 `.env` 为准，不要依赖临时 shell 环境变量。
+
+如果操作者可以直接预置 `.env`，这是最安全的方式。
 
 ---
 
@@ -326,7 +332,23 @@ HTTP 检查：
 
 ```powershell
 (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/api/health).StatusCode
-(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8891/health).StatusCode
+```
+
+Haila 健康后 **不要立即**判定 pdf2zh 失败；它可能还在启动。最多等待 60 秒：
+
+```powershell
+$deadline = (Get-Date).AddSeconds(60)
+do {
+  Start-Sleep -Seconds 1
+  try {
+    $pdf2zhOk = (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8891/health -TimeoutSec 2).StatusCode -eq 200
+  } catch { $pdf2zhOk = $false }
+} until ($pdf2zhOk -or (Get-Date) -gt $deadline)
+if (-not $pdf2zhOk) {
+  Get-Content .runtime\pdf2zh-service.log -Tail 100
+  throw "pdf2zh 未在 60 秒内就绪"
+}
+"pdf2zh health: 200"
 ```
 
 配置检查：
