@@ -132,6 +132,15 @@ import {
 
 type MobileTab = 'paper' | 'chat';
 const ARCHIVE_NOTICE_KEY = 'pagemargin.archiveNoticeDismissed.v1';
+const WEB_SEARCH_KEY = 'pagemargin.webSearch.v1';
+
+function loadWebSearchEnabled(): boolean {
+  try {
+    return localStorage.getItem(WEB_SEARCH_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 function isArchiveNoticeDismissed(): boolean {
   try {
@@ -216,6 +225,11 @@ export default function App() {
   configRef.current = config;
   const [serverConfig, setServerConfig] = useState<ServerConfig | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(() =>
+    loadWebSearchEnabled(),
+  );
+  const webSearchRef = useRef(webSearchEnabled);
+  webSearchRef.current = webSearchEnabled;
   const [agentStyle, setAgentStyle] = useState<AgentStyle>(() => loadAgentStyle());
   const agentStyleRef = useRef(agentStyle);
   agentStyleRef.current = agentStyle;
@@ -550,6 +564,18 @@ export default function App() {
       setConfig(nextChat);
     }
     setToast('翻译 API 已保存，可用于 PDF 全文翻译');
+  };
+
+  const toggleWebSearch = () => {
+    setWebSearchEnabled((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(WEB_SEARCH_KEY, next ? '1' : '0');
+      } catch {
+        // Best-effort preference.
+      }
+      return next;
+    });
   };
 
   const handleSaveAgentStyle = (style: AgentStyle) => {
@@ -1976,6 +2002,8 @@ export default function App() {
             ? noteRef.current.markdown
             : '',
         style: agentStyleRef.current,
+        webSearch:
+          webSearchRef.current && configRef.current.provider === 'openai',
         config: configRef.current,
         focusPage,
         signal: controller.signal,
@@ -2504,6 +2532,9 @@ export default function App() {
             streaming={streaming}
             modelReady={modelReady}
             modelLabel={modelStatusLabel}
+            webSearchAvailable={config.provider === 'openai'}
+            webSearchEnabled={webSearchEnabled}
+            onToggleWebSearch={toggleWebSearch}
             currentPage={currentPage}
             threads={threads}
             activeThreadId={activeThreadId}

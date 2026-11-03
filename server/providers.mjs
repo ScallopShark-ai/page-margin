@@ -38,6 +38,14 @@ function openAiEndpoint(baseUrl) {
   return joinEndpoint(baseUrl, 'chat/completions', /\/chat\/completions$/i);
 }
 
+function openAiResponsesEndpoint(baseUrl) {
+  let base = normalizeBase(baseUrl).replace(/\/chat\/completions$/i, '');
+  if (!base) throw new Error('缺少 API Base URL');
+  if (/\/responses$/i.test(base)) return base;
+  if (!/\/v\d+$/i.test(base)) base = `${base}/v1`;
+  return `${base}/responses`;
+}
+
 function anthropicEndpoint(baseUrl) {
   const base = normalizeBase(baseUrl);
   if (/\/v1\/messages$/i.test(base)) return base;
@@ -415,6 +423,37 @@ function buildCompletionBody({ provider, model, system, messages, policy }) {
   return body;
 }
 
+function toResponsesMessages(messages) {
+  return messages.map((message) => {
+    if (!Array.isArray(message.images) || message.images.length === 0) {
+      return { role: message.role, content: message.content };
+    }
+    const content = [
+      {
+        type: 'input_text',
+        text: message.content || '请分析这些图片。',
+      },
+      ...message.images.map((image) => ({
+        type: 'input_image',
+        image_url: image.dataUrl,
+      })),
+    ];
+    return { role: message.role, content };
+  });
+}
+
+function buildWebSearchBody({ model, system, messages }) {
+  return {
+    model,
+    instructions: system,
+    input: toResponsesMessages(messages),
+    tools: [{ type: 'web_search' }],
+    tool_choice: 'auto',
+    stream: true,
+    store: false,
+  };
+}
+
 function rememberTemperaturePolicy(key, policy) {
   if (
     temperaturePolicyCache.size >= MAX_TEMPERATURE_CACHE &&
@@ -444,12 +483,26 @@ function retryAfterMs(headers) {
   return Math.min(30_000, Math.max(1000, at - Date.now()));
 }
 
-async function requestCompletion({ provider, apiKey, baseUrl, model, system, messages, signal }) {
+async function requestCompletion({
+  provider,
+  apiKey,
+  baseUrl,
+  model,
+  system,
+  messages,
+  signal,
+  webSearch = false,
+}) {
   const defaults = providerDefaults(provider);
   const effectiveBase = baseUrl?.trim() || defaults.baseUrl;
   const effectiveModel = model?.trim() || defaults.model;
   if (!effectiveBase) throw new Error('请填写 API Base URL');
   if (!effectiveModel) throw new Error('请填写模型名称');
+  if (webSearch && provider !== 'openai') {
+    const error = new Error('联网搜索目前仅支持 OpenAI 模型');
+    error.status = 400;
+    throw error;
+  }
 
   let url;
   let headers;
@@ -461,7 +514,9 @@ async function requestCompletion({ provider, apiKey, baseUrl, model, system, mes
       'anthropic-version': '2023-06-01',
     };
   } else {
-    url = openAiEndpoint(effectiveBase);
+    url = webSearch
+      ? openAiResponsesEndpoint(effectiveBase)
+      : openAiEndpoint(effectiveBase);
     headers = {
       'content-type': 'application/json',
       authorization: `Bearer ${apiKey}`,
@@ -500,18 +555,24 @@ async function requestCompletion({ provider, apiKey, baseUrl, model, system, mes
   const policy =
     temperaturePolicyCache.get(cacheKey) ??
     initialTemperaturePolicy(provider, effectiveModel);
-  const attempts = temperatureAttempts(policy);
+  const attempts = webSearch ? ['web-search'] : temperatureAttempts(policy);
 
   try {
     for (let index = 0; index < attempts.length; index += 1) {
       const attempt = attempts[index];
-      const body = buildCompletionBody({
-        provider,
-        model: effectiveModel,
-        system,
-        messages,
-        policy: attempt,
-      });
+      const body = webSearch
+        ? buildWebSearchBody({
+            model: effectiveModel,
+            system,
+            messages,
+          })
+        : buildCompletionBody({
+            provider,
+            model: effectiveModel,
+            system,
+            messages,
+            policy: attempt,
+          });
 
       let response = null;
       let networkError = null;
@@ -558,6 +619,7 @@ async function requestCompletion({ provider, apiKey, baseUrl, model, system, mes
       if (!response.ok) {
         const errorBody = await response.text().catch(() => '');
         if (
+          !webSearch &&
           index < attempts.length - 1 &&
           isTemperatureRejection(response.status, errorBody)
         ) {
@@ -574,7 +636,7 @@ async function requestCompletion({ provider, apiKey, baseUrl, model, system, mes
         throw error;
       }
 
-      rememberTemperaturePolicy(cacheKey, attempt);
+      if (!webSearch) rememberTemperaturePolicy(cacheKey, attempt);
       if (!response.body) {
         throw new Error('模型服务未返回内容流');
       }
@@ -656,6 +718,75 @@ async function streamOpenAi({ response, onDelta }) {
   return { usage, finishReason };
 }
 
+function citationFromAnnotation(annotation) {
+  if (!annotation || annotation.type !== 'url_citation') return null;
+  const url = String(annotation.url ?? '').trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+  return {
+    url,
+    title: String(annotation.title ?? url).trim() || url,
+  };
+}
+
+async function streamOpenAiResponses({ response, onDelta }) {
+  let usage = null;
+  let finishReason = '';
+  const citations = [];
+  const seen = new Set();
+  const addCitation = (annotation) => {
+    const citation = citationFromAnnotation(annotation);
+    if (!citation || seen.has(citation.url)) return;
+    seen.add(citation.url);
+    citations.push(citation);
+  };
+
+  for await (const block of sseBlocks(response)) {
+    const data = parseSseData(block);
+    if (!data) continue;
+    if (data === '[DONE]') break;
+    let payload;
+    try {
+      payload = JSON.parse(data);
+    } catch {
+      continue;
+    }
+    if (payload?.type === 'error' || payload?.type === 'response.failed') {
+      throw new Error(
+        payload.error?.message ||
+          payload.response?.error?.message ||
+          'OpenAI 联网搜索失败',
+      );
+    }
+    if (payload?.type === 'response.output_text.delta') {
+      if (typeof payload.delta === 'string' && payload.delta) {
+        onDelta(payload.delta);
+      }
+      continue;
+    }
+    if (payload?.type === 'response.output_text.annotation.added') {
+      addCitation(payload.annotation);
+      continue;
+    }
+    if (payload?.type === 'response.completed') {
+      const completed = payload.response;
+      usage = completed?.usage || usage;
+      finishReason = completed?.status || 'completed';
+      for (const item of completed?.output || []) {
+        for (const part of item.content || []) {
+          for (const annotation of part.annotations || []) {
+            addCitation(annotation);
+          }
+        }
+      }
+      continue;
+    }
+    if (payload?.type === 'response.incomplete') {
+      finishReason = payload.response?.incomplete_details?.reason || 'incomplete';
+    }
+  }
+  return { usage, finishReason, citations };
+}
+
 async function streamAnthropic({ response, onDelta }) {
   let usage = null;
   let finishReason = '';
@@ -696,6 +827,7 @@ export async function streamPaperCompletion({
   messages,
   signal,
   onDelta,
+  webSearch = false,
 }) {
   if (!apiKey) {
     const error = new Error('尚未配置 API Key');
@@ -718,13 +850,16 @@ export async function streamPaperCompletion({
       system,
       messages,
       signal,
+      webSearch,
     });
 
   try {
     const result =
-      provider === 'anthropic'
-        ? await streamAnthropic({ response, onDelta })
-        : await streamOpenAi({ response, onDelta });
+      webSearch
+        ? await streamOpenAiResponses({ response, onDelta })
+        : provider === 'anthropic'
+          ? await streamAnthropic({ response, onDelta })
+          : await streamOpenAi({ response, onDelta });
     return { ...result, model: effectiveModel, provider };
   } catch (error) {
     if (error?.name === 'AbortError' || signal?.aborted) {

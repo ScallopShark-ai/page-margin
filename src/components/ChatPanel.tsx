@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Copy,
   FlaskConical,
+  Globe2,
   History,
   ImagePlus,
   KeyRound,
@@ -45,6 +46,9 @@ interface ChatPanelProps {
   streaming: boolean;
   modelReady: boolean;
   modelLabel: string;
+  webSearchAvailable: boolean;
+  webSearchEnabled: boolean;
+  onToggleWebSearch: () => void;
   currentPage: number;
   threads: ConversationThread[];
   activeThreadId: string | null;
@@ -259,6 +263,9 @@ export function ChatPanel({
   streaming,
   modelReady,
   modelLabel,
+  webSearchAvailable,
+  webSearchEnabled,
+  onToggleWebSearch,
   currentPage,
   threads,
   activeThreadId,
@@ -666,6 +673,24 @@ export function ChatPanel({
                 <Bookmark size={13} />
                 结合第 {currentPage} 页
               </button>
+              {webSearchAvailable && (
+                <button
+                  type="button"
+                  className={`web-search-toggle ${
+                    webSearchEnabled ? 'is-active' : ''
+                  }`}
+                  onClick={onToggleWebSearch}
+                  title={
+                    webSearchEnabled
+                      ? '已启用 OpenAI 联网搜索，会额外产生搜索调用'
+                      : '启用 OpenAI 联网搜索'
+                  }
+                  aria-pressed={webSearchEnabled}
+                >
+                  <Globe2 size={13} />
+                  联网
+                </button>
+              )}
               <button
                 type="button"
                 className={`image-attach-button ${

@@ -156,6 +156,7 @@ export interface ChatRequest {
   messages: Pick<ChatMessage, 'role' | 'content'>[];
   notes?: string;
   style?: AgentStyle;
+  webSearch?: boolean;
   config: ModelConfig;
   focusPage: number | null;
   signal?: AbortSignal;
@@ -168,6 +169,7 @@ export async function streamPaperChat({
   messages,
   notes,
   style,
+  webSearch,
   config,
   focusPage,
   signal,
@@ -188,6 +190,7 @@ export async function streamPaperChat({
       messages,
       notes,
       style,
+      webSearch,
       focusPage,
       config: {
         provider: config.provider,

@@ -277,12 +277,19 @@ app.post('/api/chat', async (req, res, next) => {
           custom: String(req.body.style.custom ?? '').slice(0, 3000),
         }
       : {};
+    const webSearch = req.body?.webSearch === true;
+    if (webSearch && provider !== 'openai') {
+      throw httpError('联网搜索目前仅支持 OpenAI 模型', 400, 'WEB_SEARCH_UNSUPPORTED');
+    }
     const stats = paperStats(paper);
     const context = buildPaperContext(paper, messages.at(-1)?.content ?? '', {
       maxChars: maxContextChars,
       focusPage,
     });
-    const system = buildSystemPrompt(paper, context, focusPage, notes, style);
+    const baseSystem = buildSystemPrompt(paper, context, focusPage, notes, style);
+    const system = webSearch
+      ? `${baseSystem}\n\n本次已启用 OpenAI 联网搜索。涉及论文之外的公开事实、最新进展或需要验证的信息时，优先使用搜索工具，并在回答中用 Markdown 链接标注来源。论文内部事实仍以论文原文为准，不得用搜索结果覆盖原文。`
+      : baseSystem;
 
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -320,6 +327,7 @@ app.post('/api/chat', async (req, res, next) => {
         paperPages: stats.pages,
         paperCharacters: stats.characters,
         note: context.note || '',
+        webSearch,
       },
     });
 
@@ -332,8 +340,17 @@ app.post('/api/chat', async (req, res, next) => {
         system,
         messages,
         signal: controller.signal,
+        webSearch,
         onDelta: (text) => send({ type: 'delta', text }),
       });
+      const sources = Array.isArray(result.citations) ? result.citations : [];
+      if (sources.length > 0) {
+        const sourceText = `\n\n---\n\n**联网来源**\n${sources
+          .slice(0, 8)
+          .map((source) => `- [${source.title || source.url}](${source.url})`)
+          .join('\n')}`;
+        send({ type: 'delta', text: sourceText });
+      }
       send({ type: 'done', usage: result.usage || null, finishReason: result.finishReason || '' });
     } catch (error) {
       if (error?.code === 'CLIENT_ABORT') {

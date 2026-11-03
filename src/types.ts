@@ -79,6 +79,7 @@ export interface StreamMeta {
   paperPages: number;
   paperCharacters: number;
   note?: string;
+  webSearch?: boolean;
 }
 
 export interface ChatImage {
