@@ -8,9 +8,9 @@
 
 ## 0. 硬性规则
 
-1. **不要伪造 API Key**。没有用户提供的 Key 时，完成所有不需要 Key 的步骤后停止，并明确报告“缺少 API Key”。
+1. **不要伪造 API Key**。没有 Key 时先通过 `scripts/setup-api-ui.ps1` 或 `scripts/setup-api-console.ps1` 让用户填写；用户取消或窗口不可用时，完成不需要 Key 的步骤后停止，并明确报告“缺少 API Key”。
 2. **不要把 API Key 写入聊天输出、提交到 Git、写进日志或截图中**。只写入项目根目录 `.env`。
-3. **不要运行交互式提示命令**。Agent 通常没有 TTY，必须用 `.env` + `--skip-api` 的非交互方式。
+3. **不要在 Agent 自己的 TTY 里直接运行交互式提示**。Agent 通常没有 TTY；需要用户输入时，用 `setup-api-ui.ps1` / `setup-api-console.ps1` 弹出独立窗口，或预先写 `.env`，然后使用 `--skip-api`。
 4. **不要声称“全部部署成功”**，除非：
    - `npm run deploy` 退出码为 0
    - `npm run verify` 通过
@@ -157,9 +157,41 @@ Remove-Variable apiKey
 
 Agent 没有交互式终端时，不要使用 `Read-Host` 或 `npm run configure:api` 的交互模式；改用从秘密存储取得的变量写 `.env`，或让操作者预先配置 `.env`。
 
-### 3.2 用户没有提供 Key
+### 3.2 用户没有提供 Key：弹出配置界面
 
-不要编造。先完成不需要 Key 的预检，然后停止并报告：
+不要编造 Key，也不要直接放弃。先尝试让用户在本机弹窗中填写：
+
+**Windows 图形界面（推荐）**
+
+```powershell
+powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\scripts\setup-api-ui.ps1
+```
+
+该命令会打开一个独立的小窗口，用户填写服务商、API Key、Base URL 和模型。
+保存后窗口自动关闭，Key 写入 `.env`。也可以直接运行：
+
+```powershell
+npm run setup:api:ui
+```
+
+如果海拉已经在运行，配置完成后必须重启服务，因为 `.env` 只在启动时读取。
+
+等待命令退出后，检查（不要把 Key 打印出来）：
+
+```powershell
+$hasKey = Select-String -Path .env -Pattern '^\s*AI_API_KEY\s*=\s*\S+' -Quiet
+if (-not $hasKey) { throw '用户尚未完成 API Key 配置' }
+```
+
+**没有图形桌面时，打开新的命令行窗口**
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-api-console.ps1
+```
+
+该命令会打开一个独立 PowerShell 窗口，运行遮罩输入的 API 配置提示，并在用户按 Enter 后返回。
+
+如果用户取消、窗口无法显示，或退出后 `.env` 仍然没有 Key，则停止并报告：
 
 ```text
 缺少 AI API Key，无法完成完整部署。

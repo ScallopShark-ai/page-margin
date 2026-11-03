@@ -1,6 +1,6 @@
 {
   "name": "page-margin",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "private": true,
   "type": "module",
   "description": "海拉 — a paper reading workspace with an AI margin companion",
@@ -15,7 +15,9 @@
     "doctor": "node scripts/doctor.mjs",
     "verify": "node scripts/verify.mjs",
     "configure:api": "node scripts/configure-api.mjs",
-    "test:gateway": "node scripts/test-gateway.mjs"
+    "test:gateway": "node scripts/test-gateway.mjs",
+    "setup:api:ui": "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File scripts/setup-api-ui.ps1",
+    "setup:api:console": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup-api-console.ps1"
   },
   "dependencies": {
     "express": "^4.21.2",

@@ -1,6 +1,6 @@
 # 海拉 · Haila
 
-**v1.8.0** · 本地优先的 AI 论文精读工作台
+**v1.8.1** · 本地优先的 AI 论文精读工作台
 
 把论文读薄，把思路读厚。左侧显示论文原始 PDF，右侧是一个读过全文、回答带页码的 AI 精读伙伴。
 
@@ -123,6 +123,15 @@ Key 输入会遮罩，并写入项目根目录 `.env`。`.env` 已被 `.gitignor
 配置后首次打开网页不会再弹出模型配置窗口；PDF 全文翻译也可以直接使用
 `.env` 中的服务器 Key，不需要在浏览器重复输入。
 
+如果部署由 Agent 执行、没有交互式 TTY，可以让它弹出配置界面，由用户填写：
+
+```bash
+npm run setup:api:ui        # Windows 图形界面
+npm run setup:api:console   # 弹出新的命令行窗口
+```
+
+两个入口都会保留已有代理配置，只更新 `AI_*`；保存后回到 Agent 继续部署。
+
 部署选项：
 
 ```bash
@@ -142,6 +151,8 @@ npm run doctor          # 只做环境预检
 npm run verify          # 启动临时服务验证页面/API
 npm run test:gateway    # 使用 .env 配置测试模型网关 /models
 npm run configure:api   # 重新配置 .env 中的 DeepSeek API
+npm run setup:api:ui    # 弹出图形界面填写 API
+npm run setup:api:console # 弹出命令行窗口填写 API
 ```
 
 网关测试默认只是**警告**，因为部分兼容网关没有实现 `/models`，但聊天接口仍然可用。
@@ -755,6 +766,9 @@ scripts/
   verify.mjs                临时启动服务做 HTTP 冒烟验证
   test-gateway.mjs          使用 /models 测试模型网关连通性
   configure-api.mjs         命令行写入 DeepSeek API Key 与模型配置
+  setup-api-ui.ps1          Windows 图形界面 API 配置
+  setup-api-console.ps1     打开独立命令行窗口配置 API
+  setup-api-prompt.ps1      命令行配置窗口的内层脚本
   setup-pdf2zh.mjs          创建独立 pdf2zh 克隆、Python 环境和配置
   upgrade.mjs               一键升级：git pull、依赖、运行时、构建、验证
   start-haila.ps1           后台启动海拉、等待就绪并打开浏览器
@@ -841,6 +855,13 @@ TXT 按行处理，无法识别的行会跳过。请确保 arXiv 链接 / PDF �
 ## 更新日志
 
 后续版本按时间倒序记录在这里。
+
+### v1.8.1 · 2026-11-03
+
+- 新增 `npm run setup:api:ui`：Windows 图形界面填写 DeepSeek/OpenAI/兼容 API。
+- 新增 `npm run setup:api:console`：没有图形桌面时弹出独立命令行配置窗口。
+- 两个入口都保留现有 `.env` 代理配置，并写入 UTF-8 无 BOM。
+- Agent 没有 Key 时可以先弹窗让用户填写，再继续部署。
 
 ### v1.8.0 · 2026-11-03
 
