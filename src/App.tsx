@@ -8,7 +8,9 @@ import {
 } from 'react';
 import {
   AlertCircle,
+  CheckCircle2,
   FileText,
+  Info,
   Library,
   Loader2,
   Plus,
@@ -42,6 +44,7 @@ import { PdfViewer } from './components/PdfViewer';
 import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { LibraryModal } from './components/LibraryModal';
+import { ArchiveConfirmModal } from './components/ArchiveConfirmModal';
 import { Logo, LogoMark } from './components/Logo';
 import {
   arxivToMeta,
@@ -126,6 +129,24 @@ import {
 } from './lib/pdfTranslation';
 
 type MobileTab = 'paper' | 'chat';
+const ARCHIVE_NOTICE_KEY = 'pagemargin.archiveNoticeDismissed.v1';
+
+function isArchiveNoticeDismissed(): boolean {
+  try {
+    return localStorage.getItem(ARCHIVE_NOTICE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function dismissArchiveNotice() {
+  try {
+    localStorage.setItem(ARCHIVE_NOTICE_KEY, '1');
+  } catch {
+    // The preference is best-effort when storage is disabled.
+  }
+}
+
 type TranslationStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 interface RestoredThreads {
@@ -222,6 +243,8 @@ export default function App() {
   const [mobileTab, setMobileTab] = useState<MobileTab>('paper');
   const [dragging, setDragging] = useState(false);
   const [toast, setToast] = useState('');
+  const [archivePrompt, setArchivePrompt] = useState<StoredPaper | null>(null);
+  const [archiveDontRemind, setArchiveDontRemind] = useState(false);
   const [papers, setPapers] = useState<StoredPaper[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -1476,23 +1499,7 @@ export default function App() {
     }
   };
 
-  const handleSetPaperStatus = async (
-    record: StoredPaper,
-    status: PaperStatus,
-  ) => {
-    if (record.status === status) return;
-    if (status === 'archived') {
-      const confirmed = window.confirm(
-        `归档《${record.title}》？\n\n浏览器中的 PDF 原件、抽取全文和翻译 PDF 会被删除，只保留论文名片和链接信息。对话记录会保留。\n\n之后可以重新导入全文，但归档内容本身无法直接恢复。`,
-      );
-      if (!confirmed) return;
-    } else if (record.status === 'archived') {
-      const confirmed = window.confirm(
-        `《${record.title}》已经归档，全文已从本地删除。\n\n改为「${status === 'unread' ? '未读' : status === 'reading' ? '进行中' : '已读'}」后，需要重新导入 PDF 才能阅读。继续？`,
-      );
-      if (!confirmed) return;
-    }
-
+  const applyPaperStatus = async (record: StoredPaper, status: PaperStatus) => {
     const isCurrent = paperRef.current?.key === record.id;
     setLibraryBusyId(record.id);
     try {
@@ -1514,6 +1521,9 @@ export default function App() {
 
       if (isCurrent && status === 'archived') {
         clearWorkspace();
+        // Archiving the open paper removes its PDF, so the reader cannot stay
+        // open. Return to the library instead of dropping the user on home.
+        setLibraryOpen(true);
         setToast('已归档；PDF、全文和翻译内容已从本地删除');
       } else if (status === 'archived') {
         const serverPurged = await purgeArchivedPaper(record.id, record.arxivId);
@@ -1539,6 +1549,34 @@ export default function App() {
     } finally {
       setLibraryBusyId(null);
     }
+  };
+
+  const handleSetPaperStatus = (record: StoredPaper, status: PaperStatus) => {
+    if (record.status === status) return;
+    if (status === 'archived') {
+      if (isArchiveNoticeDismissed()) {
+        void applyPaperStatus(record, status);
+        return;
+      }
+      setArchiveDontRemind(false);
+      setArchivePrompt(record);
+      return;
+    }
+    if (record.status === 'archived') {
+      const confirmed = window.confirm(
+        `《${record.title}》已经归档，全文已从本地删除。\n\n改为「${status === 'unread' ? '未读' : status === 'reading' ? '进行中' : '已读'}」后，需要重新导入 PDF 才能阅读。继续？`,
+      );
+      if (!confirmed) return;
+    }
+    void applyPaperStatus(record, status);
+  };
+
+  const confirmArchive = async () => {
+    const record = archivePrompt;
+    if (!record) return;
+    if (archiveDontRemind) dismissArchiveNotice();
+    setArchivePrompt(null);
+    await applyPaperStatus(record, 'archived');
   };
 
   const handleDeletePaper = async (record: StoredPaper) => {
@@ -2178,6 +2216,18 @@ export default function App() {
     }
   };
 
+  const archiveConfirmModal = (
+    <ArchiveConfirmModal
+      open={Boolean(archivePrompt)}
+      title={archivePrompt?.title ?? ''}
+      busy={Boolean(archivePrompt && libraryBusyId === archivePrompt.id)}
+      dontRemind={archiveDontRemind}
+      onToggleDontRemind={() => setArchiveDontRemind((value) => !value)}
+      onCancel={() => setArchivePrompt(null)}
+      onConfirm={() => void confirmArchive()}
+    />
+  );
+
   const settingsModal = (
     <SettingsModal
       open={settingsOpen}
@@ -2502,6 +2552,7 @@ export default function App() {
         />
       )}
 
+      {archiveConfirmModal}
       {settingsModal}
       {libraryModal}
       {batchModal}
@@ -2519,15 +2570,51 @@ export default function App() {
         </div>
       )}
 
-      {toast && (
-        <div className="toast" role="status">
-          <AlertCircle size={16} />
-          <span>{toast}</span>
-          <button type="button" onClick={() => setToast('')} aria-label="关闭提示">
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      {toast && (() => {
+        const errorTone =
+          /失败|错误|无法|不能|不足|请选择|请先|缺少|超出|已损坏/.test(toast);
+        const successTone =
+          /已归档|已取消归档|已保存|已更新|已导出|已恢复|已完成|已生成|已删除|已从文库/.test(
+            toast,
+          );
+        const tone = errorTone ? 'error' : successTone ? 'success' : 'info';
+        const ToastIcon =
+          tone === 'error'
+            ? AlertCircle
+            : tone === 'success'
+              ? CheckCircle2
+              : Info;
+        return (
+          <div
+            key={toast}
+            className={`toast toast--${tone}`}
+            role="status"
+            aria-live="polite"
+          >
+            <span className="toast-icon">
+              <ToastIcon size={15} />
+            </span>
+            <div className="toast-content">
+              <strong>
+                {tone === 'error'
+                  ? '操作未完成'
+                  : tone === 'success'
+                    ? '已完成'
+                    : '提示'}
+              </strong>
+              <span>{toast}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setToast('')}
+              aria-label="关闭提示"
+            >
+              <X size={13} />
+            </button>
+            <span className="toast-progress" aria-hidden="true" />
+          </div>
+        );
+      })()}
     </>
   );
 }
