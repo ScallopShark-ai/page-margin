@@ -10,7 +10,6 @@ import {
   AlertCircle,
   CheckCircle2,
   FileText,
-  Images,
   Info,
   Library,
   Loader2,
@@ -45,7 +44,6 @@ import { PdfViewer } from './components/PdfViewer';
 import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { LibraryModal } from './components/LibraryModal';
-import { ImageLibraryModal } from './components/ImageLibraryModal';
 import { ArchiveConfirmModal } from './components/ArchiveConfirmModal';
 import { Logo, LogoMark } from './components/Logo';
 import {
@@ -249,7 +247,6 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [archivePrompt, setArchivePrompt] = useState<StoredPaper | null>(null);
   const [archiveDontRemind, setArchiveDontRemind] = useState(false);
-  const [imageLibraryOpen, setImageLibraryOpen] = useState(false);
   const [papers, setPapers] = useState<StoredPaper[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -427,24 +424,6 @@ export default function App() {
     scheduleNoteSave(markdown);
   };
 
-  const insertImageIntoNote = (markdown: string) => {
-    const currentPaper = paperRef.current;
-    if (!currentPaper) {
-      setToast('请先打开一篇论文，再插入图片');
-      return;
-    }
-    const current =
-      noteRef.current.paperId === currentPaper.key
-        ? noteRef.current.markdown
-        : noteMarkdown;
-    const next = `${current.trimEnd()}${
-      current.trim() ? '\n\n' : ''
-    }${markdown}\n`;
-    setNotesOpen(true);
-    setMobileTab('paper');
-    handleNoteChange(next);
-    setToast('图片已插入阅读笔记');
-  };
 
   const applyNoteFromChat = (paperId: string, markdown: string) => {
     noteRef.current = { paperId, markdown };
@@ -2402,15 +2381,6 @@ export default function App() {
           </button>
           <button
             type="button"
-            className="header-image-button"
-            onClick={() => setImageLibraryOpen(true)}
-            title="图片管理"
-            aria-label="图片管理"
-          >
-            <Images size={15} strokeWidth={1.8} />
-          </button>
-          <button
-            type="button"
             className="header-settings-button"
             onClick={() => setSettingsOpen(true)}
             title="设置"
@@ -2587,7 +2557,6 @@ export default function App() {
           onFile={(file) => void openLocalFile(file)}
           onOpenBatchImport={() => openBatchImport()}
           onOpenLibrary={handleOpenLibrary}
-          onOpenImages={() => setImageLibraryOpen(true)}
           onOpenPaper={(record) => void handleOpenStoredPaper(record)}
           onOpenSettings={() => setSettingsOpen(true)}
           onDismissError={() => setLoadError('')}
@@ -2626,12 +2595,6 @@ export default function App() {
         />
       )}
 
-      <ImageLibraryModal
-        open={imageLibraryOpen}
-        onClose={() => setImageLibraryOpen(false)}
-        currentPaperId={paper?.key}
-        onInsertToNote={paper ? insertImageIntoNote : undefined}
-      />
       {archiveConfirmModal}
       {settingsModal}
       {libraryModal}

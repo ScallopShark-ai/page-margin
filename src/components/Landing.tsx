@@ -5,7 +5,6 @@ import {
   BookOpen,
   Clock,
   FileText,
-  Images,
   Layers3,
   Library,
   Link2,
@@ -29,7 +28,6 @@ interface LandingProps {
   onFile: (file: File) => void;
   onOpenBatchImport: () => void;
   onOpenLibrary: () => void;
-  onOpenImages: () => void;
   onOpenPaper: (paper: StoredPaper) => void;
   onOpenSettings: () => void;
   onDismissError: () => void;
@@ -51,7 +49,6 @@ export function Landing({
   onFile,
   onOpenBatchImport,
   onOpenLibrary,
-  onOpenImages,
   onOpenPaper,
   onOpenSettings,
   onDismissError,
@@ -103,15 +100,6 @@ export function Landing({
             <Library size={14} strokeWidth={1.7} />
             <span>我的文库</span>
             {activePaperCount > 0 && <em>{activePaperCount}</em>}
-          </button>
-          <button
-            className="landing-image-button"
-            type="button"
-            onClick={onOpenImages}
-            title="图片管理"
-            aria-label="图片管理"
-          >
-            <Images size={15} strokeWidth={1.7} />
           </button>
           <button className="model-pill" type="button" onClick={onOpenSettings}>
             <span className={`status-dot ${modelReady ? 'is-ready' : ''}`} />
