@@ -151,10 +151,10 @@ async function main() {
     const baseAnswer = await rl.question(
       'API Base URL [https://api.deepseek.com]: ',
     );
-    const modelAnswer = await rl.question('模型 [deepseek-chat]: ');
+    const modelAnswer = await rl.question('模型 [deepseek-flash]: ');
     const baseUrl =
       normalizeUrl(baseAnswer) ?? 'https://api.deepseek.com';
-    const model = modelAnswer.trim() || 'deepseek-chat';
+    const model = modelAnswer.trim() || 'deepseek-flash';
     updateEnv({
       AI_PROVIDER: 'deepseek',
       AI_API_KEY: apiKey,

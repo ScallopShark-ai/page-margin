@@ -1,6 +1,6 @@
 # 海拉 · Haila
 
-**v1.8.1** · 本地优先的 AI 论文精读工作台
+**v1.8.2** · 本地优先的 AI 论文精读工作台
 
 把论文读薄，把思路读厚。左侧显示论文原始 PDF，右侧是一个读过全文、回答带页码的 AI 精读伙伴。
 
@@ -116,7 +116,7 @@ npm start
 首次部署：配置 DeepSeek API
 DeepSeek API Key: ********
 API Base URL [https://api.deepseek.com]:
-模型 [deepseek-chat]:
+模型 [deepseek-flash]:
 ```
 
 Key 输入会遮罩，并写入项目根目录 `.env`。`.env` 已被 `.gitignore` 忽略。
@@ -295,12 +295,14 @@ npm run dev
 
 | 服务商 | Base URL | 默认模型 |
 | --- | --- | --- |
-| DeepSeek | `https://api.deepseek.com` | `deepseek-chat` |
+| DeepSeek | `https://api.deepseek.com` | `deepseek-flash`（DeepSeek-V4.1-Flash-1017） |
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
 | Anthropic | `https://api.anthropic.com` | `claude-sonnet-4-20250514` |
 | 自定义 / 本地 | 自行填写 | 自行填写 |
 
 模型名称、Base URL 都可在设置中修改。只要接口兼容 OpenAI Chat Completions，即可用「自定义 / 本地」接入。
+
+> **DeepSeek 模型名说明**：当前官方模型表中，`deepseek-flash` 对应 **DeepSeek-V4.1-Flash-1017**，`deepseek-v4-pro` 对应 **DeepSeek-V4-Pro-0813**。`deepseek-chat` 是 V3.1 时代的旧别名，已不在当前主表中，新部署不要再用它作为默认模型。已有 `.env` 或浏览器配置中如果还是 `deepseek-chat`，建议改为 `deepseek-flash`。
 
 ![模型列表与常用模型](docs/preview-models.png)
 
@@ -331,7 +333,7 @@ npm run dev
 AI_PROVIDER=deepseek
 AI_API_KEY=sk-...
 AI_BASE_URL=https://api.deepseek.com
-AI_MODEL=deepseek-chat
+AI_MODEL=deepseek-flash
 MAX_CONTEXT_CHARS=46000
 PORT=8787
 ```
@@ -855,6 +857,12 @@ TXT 按行处理，无法识别的行会跳过。请确保 arXiv 链接 / PDF �
 ## 更新日志
 
 后续版本按时间倒序记录在这里。
+
+### v1.8.2 · 2026-11-03
+
+- 将 DeepSeek 默认模型从旧别名 `deepseek-chat` 更新为 `deepseek-flash`（DeepSeek-V4.1-Flash-1017）。
+- 同步更新部署向导、图形配置界面、`.env.example` 和 Agent 手册。
+- `deepseek-chat` 仍可作为历史兼容名，但不再作为新部署默认值。
 
 ### v1.8.1 · 2026-11-03
 

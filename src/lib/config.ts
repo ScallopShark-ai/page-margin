@@ -17,7 +17,7 @@ export const PROVIDERS: Record<
     label: 'DeepSeek',
     short: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com',
-    model: 'deepseek-chat',
+    model: 'deepseek-flash',
     hint: '国内访问稳定，中文论文解读表现好。',
     keyPlaceholder: 'sk-…',
   },

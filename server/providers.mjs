@@ -1,7 +1,7 @@
 const DEFAULTS = {
   deepseek: {
     baseUrl: 'https://api.deepseek.com',
-    model: 'deepseek-chat',
+    model: 'deepseek-flash',
   },
   openai: {
     baseUrl: 'https://api.openai.com/v1',

@@ -61,7 +61,7 @@ $presets = @(
     Label = 'DeepSeek'
     Provider = 'deepseek'
     BaseUrl = 'https://api.deepseek.com'
-    Model = 'deepseek-chat'
+    Model = 'deepseek-flash'
   },
   [pscustomobject]@{
     Label = 'OpenAI'

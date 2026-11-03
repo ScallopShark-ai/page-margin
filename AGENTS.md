@@ -90,13 +90,15 @@ Node 22 只能直连模型网关；如果 `.env` 配置了本地 HTTP/HTTPS 代�
 
 ### 3.1 用户提供了 Key
 
+当前 DeepSeek 官方默认使用 `deepseek-flash`（DeepSeek-V4.1-Flash-1017）。`deepseek-chat` 是旧别名，不要用于新部署。
+
 将以下内容写入项目根目录 `.env`。保留已有代理配置，不要覆盖其他键。
 
 ```dotenv
 AI_PROVIDER=deepseek
 AI_API_KEY=<用户提供的 Key>
 AI_BASE_URL=https://api.deepseek.com
-AI_MODEL=deepseek-chat
+AI_MODEL=deepseek-flash
 ```
 
 如果用户使用 OpenAI 或兼容网关：
@@ -129,7 +131,7 @@ $values = [ordered]@{
   AI_PROVIDER = 'deepseek'
   AI_API_KEY = $apiKey
   AI_BASE_URL = 'https://api.deepseek.com'
-  AI_MODEL = 'deepseek-chat'
+  AI_MODEL = 'deepseek-flash'
 }
 $lines = if (Test-Path $envPath) { Get-Content $envPath } else { @() }
 $seen = @{}
