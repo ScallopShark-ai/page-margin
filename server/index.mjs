@@ -14,6 +14,7 @@ import {
   purgePaperTranslationArtifacts,
 } from './pdf2zh.mjs';
 import { startPdf2zhService } from './pdf2zh-autostart.mjs';
+import { createImagesRouter } from './images.mjs';
 import {
   buildPaperContext,
   buildSystemPrompt,
@@ -136,6 +137,7 @@ function resolveModelRequest(clientConfig = {}) {
 }
 
 app.use('/api/pdf2zh', createPdf2zhRouter());
+app.use('/api/images', createImagesRouter());
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'page-margin', time: new Date().toISOString() });

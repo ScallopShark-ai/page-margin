@@ -15,6 +15,7 @@ import {
   ListTree,
   Loader2,
   RotateCcw,
+  ScanSearch,
   Send,
   Sparkles,
   Square,
@@ -29,6 +30,7 @@ import type {
   PaperSession,
 } from '../types';
 import { shortAuthors } from '../lib/pdf';
+import { absoluteSiteUrl } from '../lib/api';
 import {
   MAX_CHAT_IMAGES,
   imageFilesFromClipboard,
@@ -52,6 +54,7 @@ interface ChatPanelProps {
   onRetry: () => void;
   onNewThread: () => void;
   onOpenSettings: () => void;
+  onExtractFigures?: () => Promise<ChatImage[]>;
   onJumpToPage: (page: number) => void;
   onToggleHistory: () => void;
   onCloseHistory: () => void;
@@ -149,12 +152,15 @@ function MessageItem({
               <a
                 key={image.id}
                 className="user-message-image"
-                href={image.dataUrl}
+                href={image.url ? absoluteSiteUrl(image.url) : image.dataUrl}
                 target="_blank"
                 rel="noreferrer"
                 title="打开图片"
               >
-                <img src={image.dataUrl} alt={image.name || '用户图片'} />
+                <img
+                  src={image.url ? absoluteSiteUrl(image.url) : image.dataUrl}
+                  alt={image.name || '用户图片'}
+                />
               </a>
             ))}
           </div>
@@ -262,6 +268,7 @@ export function ChatPanel({
   onRetry,
   onNewThread,
   onOpenSettings,
+  onExtractFigures,
   onJumpToPage,
   onToggleHistory,
   onCloseHistory,
@@ -272,6 +279,7 @@ export function ChatPanel({
   const [input, setInput] = useState('');
   const [images, setImages] = useState<ChatImage[]>([]);
   const [imageBusy, setImageBusy] = useState(false);
+  const [figureBusy, setFigureBusy] = useState(false);
   const [imageError, setImageError] = useState('');
   const [includePage, setIncludePage] = useState(false);
   const [abstractOpen, setAbstractOpen] = useState(false);
@@ -333,6 +341,32 @@ export function ChatPanel({
     }
     if (firstError) setImageError(firstError);
     setImageBusy(false);
+  };
+
+  const extractFigures = async () => {
+    if (!onExtractFigures || figureBusy || imageBusy) return;
+    if (images.length >= MAX_CHAT_IMAGES) {
+      setImageError(`每次最多附 ${MAX_CHAT_IMAGES} 张图片`);
+      return;
+    }
+    setFigureBusy(true);
+    setImageError('');
+    try {
+      const figures = await onExtractFigures();
+      if (figures.length === 0) {
+        setImageError('当前页没有识别到可提取的图表');
+      } else {
+        setImages((current) =>
+          [...current, ...figures].slice(0, MAX_CHAT_IMAGES),
+        );
+      }
+    } catch (error) {
+      setImageError(
+        error instanceof Error ? error.message : '图表提取失败，请重试',
+      );
+    } finally {
+      setFigureBusy(false);
+    }
   };
 
   const send = (text: string, focusPage: number | null = includePage ? currentPage : null) => {
@@ -657,6 +691,22 @@ export function ChatPanel({
                   void addImageFiles(files);
                 }}
               />
+              {onExtractFigures && (
+                <button
+                  type="button"
+                  className="image-attach-button"
+                  onClick={() => void extractFigures()}
+                  disabled={figureBusy || imageBusy || images.length >= MAX_CHAT_IMAGES}
+                  title={`提取第 ${currentPage} 页的图表并附给智能体`}
+                >
+                  {figureBusy ? (
+                    <Loader2 size={13} className="spin" />
+                  ) : (
+                    <ScanSearch size={13} />
+                  )}
+                  <span>图表</span>
+                </button>
+              )}
             </div>
             <div className="composer-send">
               <span className="keyboard-hint">Enter 发送 · Shift + Enter 换行</span>

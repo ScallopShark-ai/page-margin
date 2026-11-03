@@ -86,6 +86,28 @@ export interface ChatImage {
   dataUrl: string;
   mimeType: string;
   name?: string;
+  url?: string;
+  width?: number;
+  height?: number;
+  page?: number;
+  source?: 'chat' | 'figure' | 'upload';
+}
+
+export interface StoredImage {
+  id: string;
+  url: string;
+  fileName: string;
+  name: string;
+  mimeType: string;
+  bytes: number;
+  width: number;
+  height: number;
+  paperId: string;
+  paperTitle: string;
+  alt: string;
+  page: number;
+  source: 'chat' | 'figure' | 'upload';
+  createdAt: number;
 }
 
 export interface ChatMessage {

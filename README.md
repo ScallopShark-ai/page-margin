@@ -1,6 +1,6 @@
 # 海拉 · Haila
 
-**v1.5.1** · 本地优先的 AI 论文精读工作台
+**v1.6.0** · 本地优先的 AI 论文精读工作台
 
 把论文读薄，把思路读厚。左侧显示论文原始 PDF，右侧是一个读过全文、回答带页码的 AI 精读伙伴。
 
@@ -280,12 +280,51 @@ PORT=8787
 - 发送前会显示缩略图，可逐张移除。
 - 一次最多 4 张，支持 PNG / JPEG / WebP。
 - 单张原图不能超过 15 MB；应用会自动缩放到最长边 1600px 并压缩。
-- 图片会保存在当前论文的对话历史中，重新打开论文仍然能看到。
+- 图片会保存在当前论文的对话历史中，重新打开论文仍然能看到；发送后也会自动进入站点图片库并获得链接。
 - 没有文字只发图片时，会自动使用「请分析这张图片。」作为问题。
 
 图片需要所选模型支持视觉输入。OpenAI 的 GPT-4o / GPT-4.1 系列、Anthropic Claude、DeepSeek 的视觉模型以及支持 `image_url` 的 OpenAI 兼容服务都可以使用；纯文本模型会由服务商返回错误。
 
 ![粘贴图片提问](docs/preview-vision.png)
+
+### 图片管理与论文图表
+
+聊天中发送的图片会自动保存到本机站点目录 `.runtime/images`，不再是只存在于对话气泡里的临时数据。点击页面右上角的图片按钮可以打开图片管理：
+
+- 查看所有已保存到站点的图片
+- 复制图片链接
+- 复制 Markdown 图片引用
+- 把图片直接插入当前论文的阅读笔记
+- 删除图片
+
+保存后的链接形如：
+
+```text
+http://127.0.0.1:8787/api/images/img_xxx
+```
+
+写进阅读笔记或报告：
+
+```markdown
+![Figure 1](http://127.0.0.1:8787/api/images/img_xxx)
+```
+
+发送图片时，智能体会同时收到图片内容和站点链接，因此可以在生成或更新笔记时直接引用图片。
+
+站点图片保存在本机的 `.runtime/images`，不是浏览器 IndexedDB；当前 ZIP 数据备份只包含浏览器数据，不包含这个目录。复制站点到另一台设备时，需要单独备份 `.runtime/images`，否则笔记中的图片链接会失效。
+
+#### 提取论文原文图表
+
+聊天输入框下方的「图表」按钮会读取当前 PDF 页面的图片和图表标题，自动裁切当前页的 Figure / Table 区域，并作为待发送图片加入对话。点击发送后，智能体可以直接读取裁切后的图表，同时图片也会进入站点图片库。
+
+- 切到包含 Figure / Table 的页面再点击「图表」
+- 裁剪结果会显示缩略图，可先移除
+- 如果没有识别到标题，会退化为整页图片
+- 发送后智能体会看到图表和对应链接
+
+![图片管理与报告引用](docs/preview-image-library.png)
+
+![从论文页面提取图表](docs/preview-figure-extract.png)
 
 ### 本地模型示例（Ollama）
 
@@ -330,6 +369,8 @@ PORT=8787
 - 删除本机 pdf2zh 服务生成的对应翻译文件
 
 只保留论文名片：标题、作者、摘要、年份、来源、arXiv / 网页链接、缩略图和对话记录。
+
+归档论文不计入文库存量、文件夹数量、未分类数量和收藏数量；只有状态为归档的论文会继续出现在「归档」筛选中。
 
 归档论文在「归档」视图中显示，点击卡片会打开原始 abs / 网页链接；本地 PDF 没有可打开的链接，只保留名片。把归档论文改回其他状态后，需要重新导入 PDF 才能阅读。
 
@@ -603,6 +644,8 @@ src/
     PdfTranslationLogsModal.tsx PDF 翻译日志查询、搜索与下载
     SettingsModal.tsx        模型配置、翻译 API 配置
     LibraryModal.tsx         本地文库管理
+    ImageLibraryModal.tsx    站点图片管理、链接与笔记插入
+    ArchiveConfirmModal.tsx  归档确认与不再提醒偏好
     HistoryDrawer.tsx        单篇论文的对话历史
     TranslationPopover.tsx   划词翻译浮层
   lib/
@@ -615,8 +658,9 @@ src/
     modelProfiles.ts         常用模型配置的保存、切换与删除
     pdfTranslation.ts        pdf2zh 服务配置、提交、轮询与结果下载
     backup.ts                ZIP 完整备份、恢复与旧数据迁移
-  imageAttachment.ts       聊天图片校验、缩放和压缩
-  library.ts               IndexedDB 论文 / PDF / 对话 / 翻译 / 笔记 / 导入记录存储
+    imageAttachment.ts       聊天图片校验、缩放和压缩
+    pdfFigures.ts            论文当前页图表识别与裁切
+    library.ts               IndexedDB 论文 / PDF / 对话 / 翻译 / 笔记 / 导入记录存储
 scripts/
   deploy.mjs                一键部署：依赖、独立 pdf2zh、构建
   setup-pdf2zh.mjs          创建独立 pdf2zh 克隆、Python 环境和配置
@@ -631,6 +675,7 @@ server/
   pdf-proxy.mjs              任意 PDF 直链下载、SSRF 防护
   pdf2zh.mjs                 pdf2zh 服务代理：提交、任务查询、翻译 PDF 下载
   pdf2zh-autostart.mjs       启动/复用独立的本地 pdf2zh 服务
+  images.mjs                 站点图片存储、列表、删除与静态服务
   context.mjs                文本分块、检索、提示词
   providers.mjs              OpenAI 兼容 / Anthropic 流式适配、模型列表
 public/pdfjs/                PDF.js 的 cmaps、字体、wasm 资源
@@ -704,6 +749,14 @@ TXT 按行处理，无法识别的行会跳过。请确保 arXiv 链接 / PDF �
 ## 更新日志
 
 后续版本按时间倒序记录在这里。
+
+### v1.6.0 · 2026-11-03
+
+- 新增站点图片存储：发给智能体的图片自动保存到本机 `.runtime/images` 并生成稳定链接。
+- 新增图片管理窗口：查看、复制链接、复制 Markdown、插入当前笔记、删除图片。
+- 智能体请求中会附带图片站点链接，便于直接把图片写进报告和阅读笔记。
+- 新增论文当前页图表提取：自动识别 Figure / Table 标题并裁切，作为图片附件发送给智能体。
+- 归档论文不再计入文库、文件夹、未分类和收藏的文章数量。
 
 ### v1.5.1 · 2026-11-03
 

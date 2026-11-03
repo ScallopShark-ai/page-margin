@@ -462,10 +462,12 @@ function sanitizeImages(images) {
     if (dataUrl.length > 4_500_000) continue;
     if (totalChars + dataUrl.length > 12_000_000) break;
     totalChars += dataUrl.length;
+    const url = String(image.url ?? '').trim();
     next.push({
       mimeType: match[1].toLowerCase(),
       dataUrl,
       name: String(image.name ?? '').slice(0, 120),
+      ...(/^\/api\/images\/[a-z0-9_]+$/i.test(url) ? { url } : {}),
     });
   }
   return next;

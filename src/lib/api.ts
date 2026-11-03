@@ -6,6 +6,7 @@ import type {
   PaperMeta,
   PageText,
   ServerConfig,
+  StoredImage,
   StreamMeta,
 } from '../types';
 import type { AgentStyle } from './agentStyle';
@@ -50,6 +51,51 @@ export async function fetchPdfBlob(url: string, signal?: AbortSignal): Promise<B
 
 export async function fetchRemotePdf(url: string, signal?: AbortSignal): Promise<Blob> {
   return fetchPdfBlob(`/api/pdf/fetch?url=${encodeURIComponent(url)}`, signal);
+}
+
+export function absoluteSiteUrl(url: string): string {
+  try {
+    return new URL(url, window.location.origin).toString();
+  } catch {
+    return url;
+  }
+}
+
+export async function listSiteImages(): Promise<StoredImage[]> {
+  const response = await fetch('/api/images', {
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) throw await errorFromResponse(response);
+  const data = (await response.json()) as { images?: StoredImage[] };
+  return Array.isArray(data.images) ? data.images : [];
+}
+
+export async function uploadSiteImage(input: {
+  dataUrl: string;
+  name?: string;
+  width?: number;
+  height?: number;
+  paperId?: string;
+  paperTitle?: string;
+  alt?: string;
+  page?: number;
+  source?: 'chat' | 'figure' | 'upload';
+}): Promise<StoredImage> {
+  const response = await fetch('/api/images', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw await errorFromResponse(response);
+  const data = (await response.json()) as { image: StoredImage };
+  return data.image;
+}
+
+export async function deleteSiteImage(id: string): Promise<void> {
+  const response = await fetch(`/api/images/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw await errorFromResponse(response);
 }
 
 export async function purgeArchivedPaper(

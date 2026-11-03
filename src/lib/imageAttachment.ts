@@ -71,6 +71,9 @@ export async function prepareChatImage(file: File): Promise<ChatImage> {
     dataUrl,
     mimeType,
     name: file.name || '粘贴的图片',
+    width,
+    height,
+    source: 'chat',
   };
 }
 

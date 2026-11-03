@@ -313,21 +313,24 @@ export function LibraryModal({
   const allVisibleSelected =
     filtered.length > 0 && filtered.every((paper) => selectedIds.has(paper.id));
 
-  const totalConversations = papers.reduce(
+  const activePapers = papers.filter(
+    (paper) => paper.status !== 'archived',
+  );
+  const totalConversations = activePapers.reduce(
     (sum, paper) => sum + paper.conversationCount,
     0,
   );
-  const favoriteCount = papers.filter((paper) => paper.favorite).length;
+  const favoriteCount = activePapers.filter((paper) => paper.favorite).length;
   const statusCounts: Record<StatusFilter, number> = {
-    active: papers.filter((paper) => paper.status !== 'archived').length,
-    unread: papers.filter((paper) => paper.status === 'unread').length,
-    reading: papers.filter((paper) => paper.status === 'reading').length,
-    read: papers.filter((paper) => paper.status === 'read').length,
+    active: activePapers.length,
+    unread: activePapers.filter((paper) => paper.status === 'unread').length,
+    reading: activePapers.filter((paper) => paper.status === 'reading').length,
+    read: activePapers.filter((paper) => paper.status === 'read').length,
     archived: papers.filter((paper) => paper.status === 'archived').length,
   };
-  const unfiledCount = papers.filter((paper) => !paper.folderId).length;
+  const unfiledCount = activePapers.filter((paper) => !paper.folderId).length;
   const folderCount = (folderId: string) =>
-    papers.filter((paper) => paper.folderId === folderId).length;
+    activePapers.filter((paper) => paper.folderId === folderId).length;
   const currentFolder = folders.find((folder) => folder.id === selectedFolder);
   const selectedFolderLabel =
     selectedFolder === 'all'
@@ -337,7 +340,7 @@ export function LibraryModal({
         : currentFolder?.name ?? '文件夹';
   const selectedFolderPaperCount =
     selectedFolder === 'all'
-      ? papers.length
+      ? activePapers.length
       : selectedFolder === 'unfiled'
         ? unfiledCount
         : currentFolder
@@ -493,7 +496,7 @@ export function LibraryModal({
             </div>
             <div className="library-stats" aria-label="文库统计">
               <div>
-                <strong>{papers.length}</strong>
+                <strong>{activePapers.length}</strong>
                 <span>篇论文</span>
               </div>
               <i />
@@ -529,7 +532,7 @@ export function LibraryModal({
                 >
                   <BookOpen size={13} />
                   <span className="folder-row-name">全部文献</span>
-                  <em>{papers.length}</em>
+                  <em>{activePapers.length}</em>
                 </button>
                 <button
                   type="button"

@@ -347,10 +347,19 @@ function formatImageMessages(provider, messages) {
     if (!Array.isArray(message.images) || message.images.length === 0) {
       return { role: message.role, content: message.content };
     }
+    const imageLinks = message.images
+      .filter((image) => image?.url)
+      .map(
+        (image, index) =>
+          `${index + 1}. ${image.name || '图片'}：${image.url}`,
+      );
+    const textWithLinks = `${message.content || '请分析这些图片。'}${
+      imageLinks.length > 0
+        ? `\n\n用户已把图片存入站点，可直接在 Markdown 笔记/报告中引用：\n${imageLinks.join('\n')}`
+        : ''
+    }`;
     if (provider === 'anthropic') {
-      const parts = message.content
-        ? [{ type: 'text', text: message.content }]
-        : [{ type: 'text', text: '请分析这些图片。' }];
+      const parts = [{ type: 'text', text: textWithLinks }];
       for (const image of message.images) {
         const match = String(image.dataUrl ?? '').match(
           /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]+)$/i,
@@ -371,7 +380,7 @@ function formatImageMessages(provider, messages) {
     const parts = [
       {
         type: 'text',
-        text: message.content || '请分析这些图片。',
+        text: textWithLinks,
       },
       ...message.images.map((image) => ({
         type: 'image_url',

@@ -10,6 +10,7 @@ import {
   AlertCircle,
   CheckCircle2,
   FileText,
+  Images,
   Info,
   Library,
   Loader2,
@@ -44,6 +45,7 @@ import { PdfViewer } from './components/PdfViewer';
 import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { LibraryModal } from './components/LibraryModal';
+import { ImageLibraryModal } from './components/ImageLibraryModal';
 import { ArchiveConfirmModal } from './components/ArchiveConfirmModal';
 import { Logo, LogoMark } from './components/Logo';
 import {
@@ -62,8 +64,10 @@ import {
   purgeArchivedPaper,
   resolveArxiv,
   streamPaperChat,
+  uploadSiteImage,
 } from './lib/api';
 import { createBackup, restoreBackup } from './lib/backup';
+import { extractPageFigures } from './lib/pdfFigures';
 import {
   loadAgentStyle,
   normalizeAgentStyle,
@@ -245,6 +249,7 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [archivePrompt, setArchivePrompt] = useState<StoredPaper | null>(null);
   const [archiveDontRemind, setArchiveDontRemind] = useState(false);
+  const [imageLibraryOpen, setImageLibraryOpen] = useState(false);
   const [papers, setPapers] = useState<StoredPaper[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -272,6 +277,9 @@ export default function App() {
   const bootRef = useRef(false);
 
   const modelReady = hasUsableModel(config, serverConfig);
+  const libraryPaperCount = papers.filter(
+    (item) => item.status !== 'archived',
+  ).length;
   const modelStatusLabel = modelLabel(config, Boolean(serverConfig?.serverConfigured));
   const needsDeepseekSetup =
     !hasUsableModel(config, serverConfig) &&
@@ -417,6 +425,25 @@ export default function App() {
     setNoteMarkdown(markdown);
     setNoteSavedAt(null);
     scheduleNoteSave(markdown);
+  };
+
+  const insertImageIntoNote = (markdown: string) => {
+    const currentPaper = paperRef.current;
+    if (!currentPaper) {
+      setToast('请先打开一篇论文，再插入图片');
+      return;
+    }
+    const current =
+      noteRef.current.paperId === currentPaper.key
+        ? noteRef.current.markdown
+        : noteMarkdown;
+    const next = `${current.trimEnd()}${
+      current.trim() ? '\n\n' : ''
+    }${markdown}\n`;
+    setNotesOpen(true);
+    setMobileTab('paper');
+    handleNoteChange(next);
+    setToast('图片已插入阅读笔记');
   };
 
   const applyNoteFromChat = (paperId: string, markdown: string) => {
@@ -2060,7 +2087,13 @@ export default function App() {
     }
   };
 
-  const sendMessage = (
+  const extractCurrentFigures = async (): Promise<ChatImage[]> => {
+    const currentPaper = paperRef.current;
+    if (!currentPaper) return [];
+    return extractPageFigures(currentPaper.doc, currentPageRef.current);
+  };
+
+  const sendMessage = async (
     text: string,
     images: ChatImage[],
     focusPage: number | null,
@@ -2069,7 +2102,37 @@ export default function App() {
       setSettingsOpen(true);
       return;
     }
-    void runChat(text, focusPage, messages, images);
+    const activePaper = paperRef.current;
+    const storedImages: ChatImage[] = [];
+    let storeFailed = false;
+    for (const image of images) {
+      if (image.url || !activePaper) {
+        storedImages.push(image);
+        continue;
+      }
+      try {
+        const stored = await uploadSiteImage({
+          dataUrl: image.dataUrl,
+          name: image.name,
+          width: image.width,
+          height: image.height,
+          paperId: activePaper.key,
+          paperTitle: activePaper.meta.title,
+          alt: image.name,
+          page: image.page,
+          source: image.source ?? 'chat',
+        });
+        storedImages.push({ ...image, url: stored.url });
+      } catch (error) {
+        storeFailed = true;
+        console.warn('Failed to store chat image', error);
+        storedImages.push(image);
+      }
+    }
+    if (storeFailed) {
+      setToast('图片已随问题发送，但未能保存到站点图片库');
+    }
+    await runChat(text, focusPage, messages, storedImages);
   };
 
   const stopStreaming = () => {
@@ -2331,11 +2394,20 @@ export default function App() {
           >
             <Library size={14} strokeWidth={1.8} />
             <span>文库</span>
-            {papers.length > 0 && <em>{papers.length}</em>}
+            {libraryPaperCount > 0 && <em>{libraryPaperCount}</em>}
           </button>
           <button type="button" className="new-paper-button" onClick={goHome}>
             <Plus size={15} strokeWidth={2} />
             <span>新建</span>
+          </button>
+          <button
+            type="button"
+            className="header-image-button"
+            onClick={() => setImageLibraryOpen(true)}
+            title="图片管理"
+            aria-label="图片管理"
+          >
+            <Images size={15} strokeWidth={1.8} />
           </button>
           <button
             type="button"
@@ -2471,6 +2543,7 @@ export default function App() {
             onRetry={retry}
             onNewThread={() => void handleNewThread()}
             onOpenSettings={() => setSettingsOpen(true)}
+            onExtractFigures={extractCurrentFigures}
             onJumpToPage={jumpToPage}
             onToggleHistory={() => setHistoryOpen((open) => !open)}
             onCloseHistory={() => setHistoryOpen(false)}
@@ -2514,6 +2587,7 @@ export default function App() {
           onFile={(file) => void openLocalFile(file)}
           onOpenBatchImport={() => openBatchImport()}
           onOpenLibrary={handleOpenLibrary}
+          onOpenImages={() => setImageLibraryOpen(true)}
           onOpenPaper={(record) => void handleOpenStoredPaper(record)}
           onOpenSettings={() => setSettingsOpen(true)}
           onDismissError={() => setLoadError('')}
@@ -2552,6 +2626,12 @@ export default function App() {
         />
       )}
 
+      <ImageLibraryModal
+        open={imageLibraryOpen}
+        onClose={() => setImageLibraryOpen(false)}
+        currentPaperId={paper?.key}
+        onInsertToNote={paper ? insertImageIntoNote : undefined}
+      />
       {archiveConfirmModal}
       {settingsModal}
       {libraryModal}
