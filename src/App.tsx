@@ -225,6 +225,7 @@ export default function App() {
   configRef.current = config;
   const [serverConfig, setServerConfig] = useState<ServerConfig | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [serverConfigLoaded, setServerConfigLoaded] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(() =>
     loadWebSearchEnabled(),
   );
@@ -293,6 +294,7 @@ export default function App() {
   ).length;
   const modelStatusLabel = modelLabel(config, Boolean(serverConfig?.serverConfigured));
   const needsDeepseekSetup =
+    serverConfigLoaded &&
     !hasUsableModel(config, serverConfig) &&
     !isDeepseekConfigured(pdf2zhConfig);
   const translationJobList = Object.values(translationJobs);
@@ -1821,8 +1823,31 @@ export default function App() {
             apiKey: '',
           }));
         }
+        if (
+          server.serverConfigured &&
+          ['deepseek', 'openai', 'custom'].includes(server.provider)
+        ) {
+          setPdf2zhConfig((current) => {
+            if (isDeepseekConfigured(current)) return current;
+            const service = inferPdf2zhService(server.baseUrl);
+            return applyPdf2zhApiUrl(
+              {
+                ...current,
+                apiUrl: server.baseUrl,
+                service,
+                apiKey: '',
+                model: normalizeDeepseekModel(service, server.model),
+                useServerKey: true,
+              },
+              server.baseUrl,
+            );
+          });
+        }
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setServerConfigLoaded(true);
+      });
     return () => {
       cancelled = true;
     };

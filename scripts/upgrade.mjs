@@ -7,6 +7,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const npmCli = process.env.npm_execpath;
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const setupScript = path.join(root, 'scripts', 'setup-pdf2zh.mjs');
+const verifyScript = path.join(root, 'scripts', 'verify.mjs');
+const args = new Set(process.argv.slice(2));
+const skipPdf2zh = args.has('--skip-pdf2zh');
+const requirePdf2zh = args.has('--require-pdf2zh');
 
 try {
   process.loadEnvFile(path.join(root, '.env'));
@@ -33,6 +37,15 @@ function run(command, args) {
 function runNpm(args) {
   if (npmCli) {
     run(process.execPath, [npmCli, ...args]);
+    return;
+  }
+  if (process.platform === 'win32') {
+    run(process.env.ComSpec || 'cmd.exe', [
+      '/d',
+      '/s',
+      '/c',
+      `npm ${args.join(' ')}`,
+    ]);
     return;
   }
   run(npm, args);
@@ -68,11 +81,27 @@ try {
   log('更新前端 / 服务端依赖');
   runNpm(['install']);
 
-  log('同步独立 pdf2zh 运行时');
-  run(process.execPath, [setupScript]);
+  if (skipPdf2zh) {
+    log('已跳过 pdf2zh 同步');
+  } else {
+    log('同步独立 pdf2zh 运行时（失败不阻断核心升级）');
+    try {
+      run(process.execPath, [setupScript]);
+    } catch (error) {
+      if (requirePdf2zh) throw error;
+      console.warn(
+        `[upgrade] pdf2zh 同步失败，继续升级核心功能：${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+    }
+  }
 
   log('重新构建海拉');
   runNpm(['run', 'build']);
+
+  log('验证升级结果');
+  run(process.execPath, [verifyScript]);
 
   log('升级完成。请停止当前 npm start 进程后重新运行：npm start');
   log('浏览器文库、模型配置和 DeepSeek API Key 不受影响。');

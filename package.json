@@ -1,6 +1,6 @@
 {
   "name": "page-margin",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "private": true,
   "type": "module",
   "description": "海拉 — a paper reading workspace with an AI margin companion",
@@ -11,7 +11,10 @@
     "preview": "vite preview",
     "setup:pdf2zh": "node scripts/setup-pdf2zh.mjs",
     "deploy": "node scripts/deploy.mjs",
-    "upgrade": "node scripts/upgrade.mjs"
+    "upgrade": "node scripts/upgrade.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "verify": "node scripts/verify.mjs",
+    "configure:api": "node scripts/configure-api.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",

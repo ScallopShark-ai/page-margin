@@ -1,6 +1,6 @@
 # 海拉 · Haila
 
-**v1.7.0** · 本地优先的 AI 论文精读工作台
+**v1.8.0** · 本地优先的 AI 论文精读工作台
 
 把论文读薄，把思路读厚。左侧显示论文原始 PDF，右侧是一个读过全文、回答带页码的 AI 精读伙伴。
 
@@ -8,7 +8,7 @@
 
 [一键部署](#一键部署) · [一键升级](#一键升级) · [桌面快捷方式](#桌面快捷方式) · [更新日志](#更新日志) · [隐私与边界](#隐私与边界)
 
-![首次启动](docs/preview-first-run.png)
+![首次启动（跳过命令行 API 配置时的网页兜底）](docs/preview-first-run.png)
 
 ![首页](docs/preview-landing.png)
 
@@ -65,7 +65,8 @@
 - **智能体回答风格**：独立设置按钮中一键选择平衡、详细、简洁、严谨批判、导师启发的预设，也可以输入自定义风格描述；描述会作为上下文随每次提问发送给模型。
 - **响应式**：桌面左右分栏可拖动调整；移动端在「论文原文 / AI 伴读」之间切换。
 - **PDF 翻译日志**：设置页或翻译失败位置可直接打开日志面板，按来源查看、搜索、自动刷新、复制和下载；API Key 会自动脱敏。
-- **一键部署 / 升级**：`npm run deploy` 从零创建依赖和独立 pdf2zh 运行时；`npm run upgrade` 拉取新版本、同步依赖并重新构建。
+- **可验证部署 / 升级**：`npm run deploy` 先做环境预检，再安装依赖、构建、命令行配置 API，最后启动临时服务做 HTTP 验证；pdf2zh 失败不会阻断核心功能。
+- **一键升级**：`npm run upgrade` 拉取新版本、同步依赖、重新构建并验证。
 - **桌面一键启动**：安装桌面快捷方式后，双击即可在后台启动海拉和独立 pdf2zh，并自动打开浏览器。
 
 ## 一键部署
@@ -85,22 +86,54 @@ npm run deploy
 npm start
 ```
 
-`npm run deploy` 会自动完成：
+`npm run deploy` 会按顺序完成：
 
-1. 安装前端和服务端依赖
-2. 把 `zotero-pdf2zh v4.1.7` 克隆到 `.runtime/zotero-pdf2zh`
-3. 创建独立 Python 3.12 环境并安装 `pdf2zh_next`
-4. 创建独立缓存、配置和翻译输出目录
-5. 构建海拉前端
+1. **环境预检**：Node、npm、Git、磁盘、代理、pdf2zh、`.env`
+2. **命令行配置 API**：如果没有服务器 Key，提示输入 DeepSeek Key
+3. 安装前端和服务端依赖（有 lockfile 时用 `npm ci`）
+4. 尝试安装独立 pdf2zh；失败时默认继续部署核心功能
+5. 构建海拉前端（包含 TypeScript 检查）
+6. **启动冒烟测试**：临时启动服务，检查首页、静态资源、`/api/health`、图片接口
+7. 写入 `.runtime/deployment-status.json`
 
-打开 **http://127.0.0.1:8787**。如果还没有配置任何模型 API 和 URL，会要求
-先配置 **翻译 API**（DeepSeek、OpenAI 或任意 OpenAI 兼容接口）；已经有模型配置
-时不会重复弹出。Key 保存在当前浏览器，并交给本地 pdf2zh 运行时使用，不会提交
-到项目仓库。
+首次部署会看到类似：
+
+```text
+首次部署：配置 DeepSeek API
+DeepSeek API Key: ********
+API Base URL [https://api.deepseek.com]:
+模型 [deepseek-chat]:
+```
+
+Key 输入会遮罩，并写入项目根目录 `.env`。`.env` 已被 `.gitignore` 忽略。
+配置后首次打开网页不会再弹出模型配置窗口；PDF 全文翻译也可以直接使用
+`.env` 中的服务器 Key，不需要在浏览器重复输入。
+
+部署选项：
+
+```bash
+npm run deploy -- --skip-pdf2zh       # 不安装 PDF 翻译
+npm run deploy -- --require-pdf2zh    # pdf2zh 安装失败则部署失败
+npm run deploy -- --skip-api          # 跳过命令行 API 配置
+npm run deploy -- --skip-verify       # 跳过安装验证（不推荐）
+npm run deploy -- --configure-api     # 强制重新配置 API
+```
+
+单独执行：
+
+```bash
+npm run doctor          # 只做环境预检
+npm run verify          # 启动临时服务验证页面/API
+npm run configure:api   # 重新配置 .env 中的 DeepSeek API
+```
 
 > `.runtime` 不会提交到 Git，也不会把任何人的 API Key 带进仓库。
 > 海拉启动时会自动启动这份独立的 pdf2zh（端口 `8891`），不占用原有
-> Zotero 的 `8890`。
+> Zotero 的 `8890`。pdf2zh 未安装成功时，论文对话、笔记、图片和联网搜索仍可用，
+> PDF 全文翻译会标记为不可用，可稍后运行 `npm run setup:pdf2zh` 重试。
+
+如果 pdf2zh 安装失败，部署仍会继续并打印原因。需要严格保证翻译运行时，使用
+`--require-pdf2zh`。
 
 ### 桌面快捷方式
 
@@ -137,11 +170,19 @@ npm run upgrade
 2. 更新 npm 依赖
 3. 同步独立 pdf2zh 运行时
 4. 重新构建前端
+5. 运行安装验证
 
 升级完成后，停止正在运行的 `npm start`，再重新启动即可。浏览器里的文库、
 模型配置、DeepSeek Key 和 PDF 翻译记录不受影响。
 
 如果工作区有未提交修改，脚本会拒绝升级，避免覆盖本地内容。
+
+pdf2zh 同步失败默认不会阻断核心升级；需要严格要求时：
+
+```bash
+npm run upgrade -- --require-pdf2zh
+npm run upgrade -- --skip-pdf2zh
+```
 
 ### 手动启动（开发或已有环境）
 
@@ -187,20 +228,25 @@ npm run dev
 
 ### 首次启动：没有模型配置时
 
-只有在还没有配置任何模型 API 和 URL 时，第一次打开海拉才会弹出翻译模型配置
-窗口，要求填写：
+正常执行 `npm run deploy` 时，终端会先要求输入 DeepSeek API Key 和 Base URL，
+并写入 `.env`。这种情况下第一次打开海拉**不会**再弹出配置窗口。
+
+只有在以下情况下才会在网页里弹出模型配置：
+
+- 部署时使用了 `--skip-api`，或终端不是交互式环境
+- 用户配置了不受支持的服务器服务商
+- 浏览器中已有不完整或冲突的本地配置
+
+网页弹窗需要填写：
 
 - **接口类型**：DeepSeek、OpenAI 或 OpenAI 兼容 / 其他模型
 - **API Base URL**：例如 `https://api.deepseek.com`、`https://api.openai.com/v1`
 - **API Key**
 - **模型名称**：例如 `deepseek-flash`、`gpt-4o-mini`、`Qwen/Qwen2.5-7B-Instruct`
 
-这份配置用于**整篇 PDF 翻译**。选择 DeepSeek 且尚未配置对话模型时，也会作为
-默认对话模型。Key 保存在当前浏览器，并在翻译时通过本地代理发送给 pdf2zh；
-本地运行时配置位于 `.runtime`，不会写入项目源码仓库。
-
-配置完成后，可以在同一设置页随时修改。其他 OpenAI 兼容服务只需要 URL、Key
-和模型名，不需要改 pdf2zh 服务端代码。
+服务器 `.env` 中的 Key 同时用于整篇 PDF 翻译；浏览器不需要重复输入。
+如果服务器没有 Key，翻译 API 配置仍保存在当前浏览器，并在翻译时通过本地代理
+发送给 pdf2zh。`npm run configure:api` 可以随时重新配置服务器 Key。
 
 ### 对话模型
 
@@ -678,9 +724,12 @@ src/
     pdfFigures.ts            论文当前页图表识别与裁切
     library.ts               IndexedDB 论文 / PDF / 对话 / 翻译 / 笔记 / 导入记录存储
 scripts/
-  deploy.mjs                一键部署：依赖、独立 pdf2zh、构建
+  deploy.mjs                一键部署：预检、依赖、可选 pdf2zh、构建、API、验证
+  doctor.mjs                环境预检：Node、npm、Git、磁盘、代理、运行时
+  verify.mjs                临时启动服务做 HTTP 冒烟验证
+  configure-api.mjs         命令行写入 DeepSeek API Key 与模型配置
   setup-pdf2zh.mjs          创建独立 pdf2zh 克隆、Python 环境和配置
-  upgrade.mjs               一键升级：git pull、依赖、运行时、构建
+  upgrade.mjs               一键升级：git pull、依赖、运行时、构建、验证
   start-haila.ps1           后台启动海拉、等待就绪并打开浏览器
   start-haila.cmd           cmd 包装器，供桌面快捷方式调用
   install-haila-shortcut.ps1 创建桌面快捷方式
@@ -765,6 +814,17 @@ TXT 按行处理，无法识别的行会跳过。请确保 arXiv 链接 / PDF �
 ## 更新日志
 
 后续版本按时间倒序记录在这里。
+
+### v1.8.0 · 2026-11-03
+
+- `npm run deploy` 增加环境预检、安装验证和部署状态记录；依赖安装改用 `npm ci`。
+- pdf2zh 运行时固定为 zotero-pdf2zh `v4.1.7`、`pdf2zh_next==2.9.0`、`bitstring==4.4.0`。
+- pdf2zh 安装失败默认不再阻断核心部署，可用 `--require-pdf2zh` 强制要求。
+- 新增 `npm run doctor`、`npm run verify`、`npm run configure:api`。
+- 首次部署在命令行遮罩输入 DeepSeek API Key，写入 `.env`。
+- 服务器 `.env` 中的 Key 可同时供聊天与 PDF 全文翻译使用，浏览器无需重复输入。
+- 首次启动等待服务器配置读取完成，避免模型配置窗口闪一下。
+- `npm run upgrade` 构建后自动运行安装验证。
 
 ### v1.7.0 · 2026-11-03
 

@@ -136,7 +136,20 @@ function resolveModelRequest(clientConfig = {}) {
   return { provider, apiKey, baseUrl, model };
 }
 
-app.use('/api/pdf2zh', createPdf2zhRouter());
+app.use(
+  '/api/pdf2zh',
+  createPdf2zhRouter({
+    fallbackLlm:
+      serverConfig.apiKey &&
+      ['deepseek', 'openai', 'custom'].includes(serverConfig.provider)
+        ? {
+            apiKey: serverConfig.apiKey,
+            apiUrl: serverConfig.baseUrl,
+            model: serverConfig.model,
+          }
+        : null,
+  }),
+);
 app.use('/api/images', createImagesRouter());
 
 app.get('/api/health', (_req, res) => {

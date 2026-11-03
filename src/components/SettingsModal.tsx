@@ -254,6 +254,11 @@ export function SettingsModal({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    const useServerKey = Boolean(
+      pdf2zhDraft.useServerKey &&
+        !pdf2zhDraft.apiKey.trim() &&
+        server?.serverConfigured,
+    );
     const nextPdf2zh: Pdf2zhConfig = {
       baseUrl: pdf2zhDraft.baseUrl.trim().replace(/\/+$/, ''),
       engine: pdf2zhDraft.engine,
@@ -261,6 +266,7 @@ export function SettingsModal({
       apiUrl: pdf2zhDraft.apiUrl.trim().replace(/\/+$/, ''),
       apiKey: pdf2zhDraft.apiKey.trim(),
       model: pdf2zhDraft.model.trim(),
+      useServerKey,
     };
     if (nextPdf2zh.baseUrl) {
       try {
@@ -271,8 +277,14 @@ export function SettingsModal({
         return;
       }
     }
-    if (!nextPdf2zh.apiKey || !nextPdf2zh.apiUrl || !nextPdf2zh.model) {
-      setError('PDF 全文翻译必须配置 API Key、Base URL 和模型');
+    if (
+      (!nextPdf2zh.apiKey && !nextPdf2zh.useServerKey) ||
+      !nextPdf2zh.apiUrl ||
+      !nextPdf2zh.model
+    ) {
+      setError(
+        'PDF 全文翻译必须配置 API Key、Base URL 和模型，或使用服务器 .env 中的 Key',
+      );
       return;
     }
     const next = normalizeDraft();
@@ -841,7 +853,13 @@ export function SettingsModal({
                       apiKey: event.target.value,
                     }))
                   }
-                  placeholder="sk-…"
+                  placeholder={
+                    server?.serverConfigured &&
+                    pdf2zhDraft.useServerKey &&
+                    !pdf2zhDraft.apiKey
+                      ? '使用服务器 .env 中的 Key'
+                      : 'sk-…'
+                  }
                   spellCheck={false}
                   autoComplete="off"
                   aria-label="PDF 翻译 API Key"
@@ -880,8 +898,12 @@ export function SettingsModal({
             <p className="settings-pdf2zh-hint">
               支持任意 OpenAI 兼容 API。DeepSeek / OpenAI 会根据 URL 自动识别，
               其他服务请选择「OpenAI 兼容 / 其他模型」并填写完整的 Base URL
-              （通常以 <code>/v1</code> 结尾）。Key 保存在当前浏览器，用于整篇
-              PDF 翻译；本地运行时不写入项目仓库。
+              （通常以 <code>/v1</code> 结尾）。
+              {server?.serverConfigured && pdf2zhDraft.useServerKey ? (
+                <> 当前使用服务器 <code>.env</code> 中的 Key；填入新的 Key 可覆盖。</>
+              ) : (
+                <> Key 保存在当前浏览器，用于整篇 PDF 翻译；本地运行时不写入项目仓库。</>
+              )}
             </p>
           </section>
 

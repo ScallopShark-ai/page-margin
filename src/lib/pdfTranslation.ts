@@ -7,6 +7,7 @@ export interface Pdf2zhConfig {
   apiUrl: string;
   apiKey: string;
   model: string;
+  useServerKey?: boolean;
 }
 
 export interface Pdf2zhTask {
@@ -80,6 +81,7 @@ export const DEFAULT_PDF2ZH_CONFIG: Pdf2zhConfig = {
   apiUrl: 'https://api.deepseek.com',
   apiKey: '',
   model: 'deepseek-flash',
+  useServerKey: false,
 };
 
 export function normalizeDeepseekModel(service: string, model: string): string {
@@ -101,7 +103,11 @@ export function normalizeDeepseekModel(service: string, model: string): string {
 }
 
 export function isDeepseekConfigured(config: Pdf2zhConfig): boolean {
-  return Boolean(config.apiKey.trim() && config.apiUrl.trim() && config.model.trim());
+  return Boolean(
+    (config.apiKey.trim() || config.useServerKey) &&
+      config.apiUrl.trim() &&
+      config.model.trim(),
+  );
 }
 
 export function loadPdf2zhConfig(): Pdf2zhConfig {
@@ -138,6 +144,7 @@ export function loadPdf2zhConfig(): Pdf2zhConfig {
       apiUrl,
       apiKey:
         typeof parsed.apiKey === 'string' ? parsed.apiKey.trim() : '',
+      useServerKey: parsed.useServerKey === true,
       model: normalizeDeepseekModel(
         service,
         typeof parsed.model === 'string' && parsed.model.trim()
@@ -172,9 +179,10 @@ export function normalizePdf2zhConfig(config: Pdf2zhConfig): Pdf2zhConfig | null
     config.engine === 'pdf2zh' ? 'pdf2zh' : 'pdf2zh_next';
   const apiUrl = config.apiUrl.trim().replace(/\/+$/, '');
   const apiKey = config.apiKey.trim();
+  const useServerKey = Boolean(config.useServerKey && !apiKey);
   const service = resolvePdf2zhService(config.service, apiUrl);
   const model = normalizeDeepseekModel(service, config.model);
-  if (!apiUrl || !apiKey || !model) return null;
+  if (!apiUrl || (!apiKey && !useServerKey) || !model) return null;
   try {
     const api = new URL(apiUrl);
     if (!['http:', 'https:'].includes(api.protocol)) return null;
@@ -188,6 +196,7 @@ export function normalizePdf2zhConfig(config: Pdf2zhConfig): Pdf2zhConfig | null
     apiUrl,
     apiKey,
     model,
+    useServerKey,
   };
 }
 
@@ -239,6 +248,7 @@ export async function submitPdf2zh(
         apiKey: config.apiKey,
         model: config.model,
         service: config.service,
+        useServerKey: Boolean(config.useServerKey),
       }),
     },
     body: pdf,

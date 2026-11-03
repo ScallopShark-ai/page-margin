@@ -126,14 +126,30 @@ async function requestService(url, options = {}) {
   return { response, payload };
 }
 
-function parseClientLlmConfig(req) {
+function parseClientLlmConfig(req, fallback) {
   const raw = req.get('X-PDF2zh-Config');
-  if (!raw) return null;
-  let parsed;
-  try {
-    parsed = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
-  } catch {
-    throw pdf2zhError('PDF 翻译 API 配置无法解析');
+  let parsed = null;
+  if (raw) {
+    try {
+      parsed = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
+    } catch {
+      throw pdf2zhError('PDF 翻译 API 配置无法解析');
+    }
+  }
+  const wantsServerKey =
+    !parsed ||
+    parsed.useServerKey === true ||
+    !String(parsed.apiKey ?? '').trim();
+  if (wantsServerKey && fallback?.apiKey) {
+    parsed = {
+      ...parsed,
+      apiUrl: fallback.apiUrl,
+      apiKey: fallback.apiKey,
+      model: fallback.model,
+    };
+  }
+  if (!parsed) {
+    throw pdf2zhError('首次使用需要配置翻译 API Key、Base URL 和模型');
   }
   const apiUrl = String(parsed?.apiUrl ?? '').trim().replace(/\/+$/, '');
   const apiKey = String(parsed?.apiKey ?? '').trim();
@@ -204,8 +220,9 @@ function findTask(tasks, taskId) {
   );
 }
 
-export function createPdf2zhRouter() {
+export function createPdf2zhRouter(options = {}) {
   const router = express.Router();
+  const fallbackLlm = options.fallbackLlm ?? null;
 
   router.get('/logs', (req, res, next) => {
     try {
@@ -275,7 +292,7 @@ export function createPdf2zhRouter() {
           throw pdf2zhError('上传内容不是有效的 PDF');
         }
 
-        const llmApi = parseClientLlmConfig(req);
+        const llmApi = parseClientLlmConfig(req, fallbackLlm);
         const config = {
           fileName,
           fileContent: pdf.toString('base64'),

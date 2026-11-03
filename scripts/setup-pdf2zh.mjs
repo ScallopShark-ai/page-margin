@@ -16,6 +16,8 @@ const repo = path.join(runtime, 'zotero-pdf2zh');
 const serverDir = path.join(repo, 'server');
 const venvDir = path.join(runtime, 'pdf2zh-venv');
 const pdf2zhVersion = 'v4.1.7';
+const pdf2zhNextVersion = '2.9.0';
+const bitstringVersion = '4.4.0';
 const repoUrl = 'https://github.com/guaguastandup/zotero-pdf2zh.git';
 
 try {
@@ -75,22 +77,18 @@ function venvPython() {
 function runtimeReady() {
   const python = venvPython();
   if (!python) return false;
-  const result = spawnSync(
-    python,
-    [
-      '-c',
-      "import pdf2zh_next, bitstring, importlib.metadata as m; print(m.version('pdf2zh_next')); print(m.version('bitstring'))",
-    ],
-    { cwd: root, env: process.env, stdio: 'ignore' },
-  );
-  if (result.status !== 0) return false;
-  const bitstring = capture(python, [
+  const result = capture(python, [
     '-c',
-    "import importlib.metadata as m; print(m.version('bitstring'))",
+    "import pdf2zh_next, bitstring, importlib.metadata as m; print(m.version('pdf2zh_next')); print(m.version('bitstring'))",
   ]);
-  if (bitstring.status !== 0) return false;
-  const version = bitstring.stdout.trim().split('.').map(Number);
-  return version[0] < 5;
+  if (result.status !== 0) return false;
+  const [installedPdf2zh, installedBitstring] = result.stdout
+    .trim()
+    .split(/\r?\n/);
+  return (
+    installedPdf2zh === pdf2zhNextVersion &&
+    installedBitstring === bitstringVersion
+  );
 }
 
 function ensureClone() {
@@ -159,8 +157,8 @@ function ensureVenv() {
       python,
       '-r',
       requirements,
-      'pdf2zh_next>=2.9.0,<3.0.0',
-      'bitstring<5',
+      `pdf2zh_next==${pdf2zhNextVersion}`,
+      `bitstring==${bitstringVersion}`,
     ]);
   } else {
     run(python, [
@@ -169,12 +167,14 @@ function ensureVenv() {
       'install',
       '-r',
       requirements,
-      'pdf2zh_next>=2.9.0,<3.0.0',
-      'bitstring<5',
+      `pdf2zh_next==${pdf2zhNextVersion}`,
+      `bitstring==${bitstringVersion}`,
     ]);
   }
   if (!runtimeReady()) {
-    throw new Error('依赖安装完成，但 pdf2zh_next / bitstring<5 仍无法导入');
+    throw new Error(
+      `依赖安装完成，但 pdf2zh_next==${pdf2zhNextVersion} / bitstring==${bitstringVersion} 仍无法导入`,
+    );
   }
 }
 
