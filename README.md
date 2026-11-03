@@ -334,8 +334,6 @@ npm run dev
 
 > **DeepSeek 模型名说明**：当前官方模型表中，`deepseek-flash` 对应 **DeepSeek-V4.1-Flash-1017**，`deepseek-v4-pro` 对应 **DeepSeek-V4-Pro-0813**。`deepseek-chat` 是 V3.1 时代的旧别名，已不在当前主表中，新部署不要再用它作为默认模型。已有 `.env` 或浏览器配置中如果还是 `deepseek-chat`，建议改为 `deepseek-flash`。
 
-![模型列表与常用模型](docs/preview-models.png)
-
 ### 自动获取模型列表
 
 1. 选择服务商，填好 Base URL 和 API Key。
