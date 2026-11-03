@@ -71,13 +71,26 @@
 
 ## 一键部署
 
-要求：
+### 运行环境与节点要求
 
-- Node.js **22+**
-- Git
-- `uv`（推荐；没有 uv 时需要 Python 3.12）
-- 约 **900 MB** 磁盘，用于独立 pdf2zh 运行时和模型缓存
-- 首次安装需要网络
+| 项目 | 要求 |
+|---|---|
+| Node.js | **22+**；使用本地代理时必须 **24+** |
+| 操作系统 | Windows 10/11 可使用桌面快捷方式；Linux/macOS 可手动 `npm start` |
+| 网络 | 首次安装需要网络；模型网关需要可访问 |
+| 代理节点 | HTTP/HTTPS 代理，推荐本地端口；填入 `.env` 的 `HTTPS_PROXY` / `HTTP_PROXY` |
+| 端口 | Haila `8787`，pdf2zh `8891`；均只监听 `127.0.0.1` |
+| 磁盘 | 约 900 MB 用于可选 pdf2zh 运行时和模型缓存 |
+| Git | 一键升级需要；部署核心功能不强制 |
+| Python | 可选；安装 pdf2zh 时需要 `uv` 或 Python 3.12 |
+| 浏览器 | 现代 Chrome / Edge / Firefox；数据保存在 IndexedDB |
+
+代理节点说明：
+
+- Node.js 24+ 才能使用内置 `--use-env-proxy`；Node 22 只能直连模型网关。
+- 当前启动器按 HTTP/HTTPS 代理环境变量工作，不承诺 SOCKS5 代理。
+- 本地代理会做 TCP 探测；远程代理只按配置使用，不主动阻塞启动。
+- arXiv、OpenReview、ACL、NeurIPS、IEEE、Springer 等学术站点默认绕过代理。
 
 ```bash
 git clone https://github.com/ScallopShark-ai/page-margin.git haila
@@ -94,7 +107,8 @@ npm start
 4. 尝试安装独立 pdf2zh；失败时默认继续部署核心功能
 5. 构建海拉前端（包含 TypeScript 检查）
 6. **启动冒烟测试**：临时启动服务，检查首页、静态资源、`/api/health`、图片接口
-7. 写入 `.runtime/deployment-status.json`
+7. **模型网关测试**：如果服务器已配置 Key，调用 `/api/models` 验证网关和 Key
+8. 写入 `.runtime/deployment-status.json`
 
 首次部署会看到类似：
 
@@ -116,6 +130,8 @@ npm run deploy -- --skip-pdf2zh       # 不安装 PDF 翻译
 npm run deploy -- --require-pdf2zh    # pdf2zh 安装失败则部署失败
 npm run deploy -- --skip-api          # 跳过命令行 API 配置
 npm run deploy -- --skip-verify       # 跳过安装验证（不推荐）
+npm run deploy -- --skip-gateway      # 跳过网关 /models 测试
+npm run deploy -- --require-gateway   # 网关测试失败则部署失败
 npm run deploy -- --configure-api     # 强制重新配置 API
 ```
 
@@ -124,8 +140,18 @@ npm run deploy -- --configure-api     # 强制重新配置 API
 ```bash
 npm run doctor          # 只做环境预检
 npm run verify          # 启动临时服务验证页面/API
+npm run test:gateway    # 使用 .env 配置测试模型网关 /models
 npm run configure:api   # 重新配置 .env 中的 DeepSeek API
 ```
+
+网关测试默认只是**警告**，因为部分兼容网关没有实现 `/models`，但聊天接口仍然可用。
+需要把网关测试作为硬性条件时：
+
+```bash
+npm run deploy -- --require-gateway
+```
+
+`/models` 失败时，可改用网页里的「获取列表」或直接发送一条真实对话做最终验证。
 
 > `.runtime` 不会提交到 Git，也不会把任何人的 API Key 带进仓库。
 > 海拉启动时会自动启动这份独立的 pdf2zh（端口 `8891`），不占用原有
@@ -727,6 +753,7 @@ scripts/
   deploy.mjs                一键部署：预检、依赖、可选 pdf2zh、构建、API、验证
   doctor.mjs                环境预检：Node、npm、Git、磁盘、代理、运行时
   verify.mjs                临时启动服务做 HTTP 冒烟验证
+  test-gateway.mjs          使用 /models 测试模型网关连通性
   configure-api.mjs         命令行写入 DeepSeek API Key 与模型配置
   setup-pdf2zh.mjs          创建独立 pdf2zh 克隆、Python 环境和配置
   upgrade.mjs               一键升级：git pull、依赖、运行时、构建、验证
@@ -825,6 +852,8 @@ TXT 按行处理，无法识别的行会跳过。请确保 arXiv 链接 / PDF �
 - 服务器 `.env` 中的 Key 可同时供聊天与 PDF 全文翻译使用，浏览器无需重复输入。
 - 首次启动等待服务器配置读取完成，避免模型配置窗口闪一下。
 - `npm run upgrade` 构建后自动运行安装验证。
+- 新增 `npm run test:gateway`，在部署后调用 `/api/models` 验证网关和 Key。
+- 部署说明补充 Node.js、代理节点、端口和操作系统要求。
 
 ### v1.7.0 · 2026-11-03
 

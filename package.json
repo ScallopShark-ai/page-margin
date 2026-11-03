@@ -14,7 +14,8 @@
     "upgrade": "node scripts/upgrade.mjs",
     "doctor": "node scripts/doctor.mjs",
     "verify": "node scripts/verify.mjs",
-    "configure:api": "node scripts/configure-api.mjs"
+    "configure:api": "node scripts/configure-api.mjs",
+    "test:gateway": "node scripts/test-gateway.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",
@@ -38,5 +39,8 @@
     "concurrently": "^9.1.2",
     "typescript": "^5.8.3",
     "vite": "^6.3.4"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

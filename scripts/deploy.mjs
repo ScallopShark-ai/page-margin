@@ -11,12 +11,15 @@ const setupScript = path.join(root, 'scripts', 'setup-pdf2zh.mjs');
 const doctorScript = path.join(root, 'scripts', 'doctor.mjs');
 const apiScript = path.join(root, 'scripts', 'configure-api.mjs');
 const verifyScript = path.join(root, 'scripts', 'verify.mjs');
+const gatewayScript = path.join(root, 'scripts', 'test-gateway.mjs');
 const args = new Set(process.argv.slice(2));
 const skipPdf2zh = args.has('--skip-pdf2zh');
 const requirePdf2zh = args.has('--require-pdf2zh');
 const skipApi = args.has('--skip-api');
 const forceApi = args.has('--configure-api');
 const skipVerify = args.has('--skip-verify');
+const skipGateway = args.has('--skip-gateway');
+const requireGateway = args.has('--require-gateway');
 
 try {
   process.loadEnvFile(path.join(root, '.env'));
@@ -81,6 +84,8 @@ let pdf2zhReady = false;
 let pdf2zhError = '';
 let apiConfigured = false;
 let verified = false;
+let gatewayTested = false;
+let gatewayError = '';
 let apiSkipped = false;
 
 try {
@@ -98,6 +103,7 @@ try {
 
   if (skipApi) {
     apiSkipped = true;
+    apiConfigured = hasEnvApiKey();
   } else {
     log('配置首次使用的 API（如果 .env 中已有 Key 会自动跳过）');
     try {
@@ -154,6 +160,33 @@ try {
     log('已跳过安装验证');
   }
 
+  if (skipGateway) {
+    log('已跳过模型网关连接测试');
+  } else if (!apiConfigured) {
+    if (requireGateway) {
+      throw new Error(
+        '没有服务器 AI Key，无法执行 --require-gateway 网关测试',
+      );
+    }
+    log('没有服务器 AI Key，跳过模型网关连接测试');
+  } else {
+    log('测试模型网关连接（调用 /models，不产生模型对话费用）');
+    try {
+      run(process.execPath, [gatewayScript]);
+      gatewayTested = true;
+    } catch (error) {
+      gatewayError = error instanceof Error ? error.message : String(error);
+      if (requireGateway) {
+        throw new Error(
+          `模型网关连接测试失败（--require-gateway）：${gatewayError}`,
+        );
+      }
+      console.warn(
+        '[deploy] 模型网关 /models 测试未通过；核心部署已完成。可稍后运行 npm run test:gateway 复查。',
+      );
+    }
+  }
+
   writeStatus({
     version: 2,
     createdAt: new Date().toISOString(),
@@ -162,12 +195,22 @@ try {
     apiConfigured,
     apiSkipped,
     verified,
+    gatewayTested,
+    gatewayError,
   });
 
   log('部署完成');
   log(
     `核心功能：${verified ? '验证通过' : '已构建（未验证）'}；API：${
       apiConfigured ? '已配置' : '未配置（网页兜底）'
+    }；网关：${
+      gatewayTested
+        ? '测试通过'
+        : gatewayError
+          ? '测试失败（警告）'
+          : skipGateway
+            ? '已跳过'
+            : '未测试'
     }；pdf2zh：${pdf2zhReady ? '可用' : skipPdf2zh ? '已跳过' : '不可用'}`,
   );
   log('启动：npm start');
@@ -184,6 +227,8 @@ try {
     apiConfigured,
     apiSkipped,
     verified,
+    gatewayTested,
+    gatewayError,
     failed: true,
   });
   console.error(
