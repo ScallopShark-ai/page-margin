@@ -1025,7 +1025,38 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paper, activeThreadId, messages, streaming]);
 
-  const startLoading = (progress: LoadProgress) => setLoading(progress);
+  const startLoading = (progress: LoadProgress) => {
+    const controller = loadAbortRef.current;
+    // A canceled import must not be able to resurrect the loading overlay
+    // when it reaches its next async checkpoint.
+    if (!controller || controller.signal.aborted) return;
+    setLoading(progress);
+  };
+
+  const cancelLoading = () => {
+    const controller = loadAbortRef.current;
+    loadAbortRef.current = null;
+    controller?.abort();
+    setLoading(null);
+    setToast(
+      paperRef.current
+        ? '已取消打开，留在当前论文'
+        : '已取消打开',
+    );
+  };
+
+  useEffect(() => {
+    if (!loading) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      cancelLoading();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+    // cancelLoading intentionally reads the live abort ref, not a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   const openArxiv = async (input: string) => {
     setLibraryOpen(false);
@@ -1064,6 +1095,10 @@ export default function App() {
       }
 
       const pdfMeta = await readPdfMetadata(doc);
+      if (controller.signal.aborted) {
+        void doc.destroy();
+        return;
+      }
       startLoading({
         stage: '提取论文全文',
         detail: `共 ${doc.numPages} 页，正在建立可检索文本…`,
@@ -1161,6 +1196,11 @@ export default function App() {
         return;
       }
       const pdfMeta = await readPdfMetadata(doc, file);
+      if (controller.signal.aborted) {
+        URL.revokeObjectURL(pdfHref);
+        void doc.destroy();
+        return;
+      }
       startLoading({
         stage: '解析论文',
         detail: `共 ${doc.numPages} 页，正在提取文本…`,
@@ -1198,6 +1238,11 @@ export default function App() {
       };
       startLoading({ stage: '准备阅读器', detail: '正在铺开论文页面…', percent: 100 });
       await new Promise((resolve) => window.setTimeout(resolve, 100));
+      if (controller.signal.aborted) {
+        URL.revokeObjectURL(pdfHref);
+        void doc.destroy();
+        return;
+      }
       activatePaper(session, restored);
       window.history.replaceState({}, '', window.location.pathname);
       void persistSession(session, Promise.resolve(file));
@@ -1261,6 +1306,11 @@ export default function App() {
       }
 
       const pdfMeta = await readPdfMetadata(doc);
+      if (controller.signal.aborted) {
+        URL.revokeObjectURL(pdfHref);
+        void doc.destroy();
+        return;
+      }
       startLoading({
         stage: '提取论文全文',
         detail: `共 ${doc.numPages} 页，正在建立可检索文本…`,
@@ -2581,13 +2631,30 @@ export default function App() {
       </main>
 
       {loading && (
-        <div className="workspace-loading" role="status" aria-live="polite">
+        <div
+          className="workspace-loading"
+          role="dialog"
+          aria-modal="true"
+          aria-label="正在打开论文"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) cancelLoading();
+          }}
+        >
           <div className="workspace-loading-card">
+            <button
+              type="button"
+              className="workspace-loading-close"
+              onClick={cancelLoading}
+              aria-label="取消打开并关闭"
+              title="取消打开并关闭"
+            >
+              <X size={16} />
+            </button>
             <div className="workspace-loading-mark">
               <LogoMark size={38} />
             </div>
             <span className="card-kicker">OPENING PAPER</span>
-            <h2>{loading.stage}</h2>
+            <h2 aria-live="polite">{loading.stage}</h2>
             <p>{loading.detail}</p>
             <div className="progress-track wide">
               <span
@@ -2598,6 +2665,17 @@ export default function App() {
               <Loader2 size={13} className="spin" />
               当前论文会在新论文准备好后替换
             </span>
+            <div className="workspace-loading-actions">
+              <button
+                type="button"
+                className="loading-cancel"
+                onClick={cancelLoading}
+                title="取消本次打开，留在当前论文（Esc）"
+              >
+                {paperRef.current ? '取消并返回当前论文' : '取消打开'}
+                <kbd>Esc</kbd>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2607,6 +2685,7 @@ export default function App() {
           loading={loading}
           error={loadError}
           papers={papers}
+          onCancelLoading={cancelLoading}
           modelReady={modelReady}
           modelLabel={modelStatusLabel}
           onOpenLink={handleOpenLink}

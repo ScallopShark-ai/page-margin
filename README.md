@@ -1,6 +1,6 @@
 # 海拉 · Haila
 
-**v1.8.2** · 本地优先的 AI 论文精读工作台
+**v1.8.3** · 本地优先的 AI 论文精读工作台
 
 把论文读薄，把思路读厚。左侧显示论文原始 PDF，右侧是一个读过全文、回答带页码的 AI 精读伙伴。
 
@@ -10,11 +10,12 @@
 
 ## 版本历史
 
-当前版本 **v1.8.2**。下表列出全部版本，完整逐条记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本 **v1.8.3**。下表列出全部版本，完整逐条记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 | 版本 | 日期 | 主要变化 |
 | --- | --- | --- |
-| **v1.8.2** | 2026-11-03 | DeepSeek 默认模型更新为 deepseek-flash |
+| **v1.8.3** | 2026-11-05 | 修复导入遮罩无法退出，新增关闭/背景取消 |
+| v1.8.2 | 2026-11-03 | DeepSeek 默认模型更新为 deepseek-flash |
 | v1.8.1 | 2026-11-03 | 新增 npm run setup:api:ui：Windows 图形界面填写 DeepSeek/OpenAI/兼容 API。 |
 | v1.8.0 | 2026-11-03 | npm run deploy 增加环境预检、安装验证和部署状态记录；依赖安装改用 npm ci。 |
 | v1.7.0 | 2026-11-03 | 接入 OpenAI Responses API 的 web_search 工具。 |

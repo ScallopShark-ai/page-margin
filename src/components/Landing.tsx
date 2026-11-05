@@ -25,6 +25,7 @@ interface LandingProps {
   modelReady: boolean;
   modelLabel: string;
   onOpenLink: (input: string) => void;
+  onCancelLoading: () => void;
   onFile: (file: File) => void;
   onOpenBatchImport: () => void;
   onOpenLibrary: () => void;
@@ -46,6 +47,7 @@ export function Landing({
   modelReady,
   modelLabel,
   onOpenLink,
+  onCancelLoading,
   onFile,
   onOpenBatchImport,
   onOpenLibrary,
@@ -291,6 +293,15 @@ export function Landing({
                   />
                 </div>
                 <p>{loading.detail}</p>
+                <button
+                  type="button"
+                  className="loading-cancel"
+                  onClick={onCancelLoading}
+                  title="取消本次打开（Esc）"
+                >
+                  取消打开
+                  <kbd>Esc</kbd>
+                </button>
               </div>
             )}
 
