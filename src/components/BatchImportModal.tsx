@@ -19,7 +19,7 @@ import type {
 } from '../types';
 import type { BatchImportItem } from '../lib/batchImport';
 import { importBatchItem, newBatchTaskId } from '../lib/batchImport';
-import { saveImportRun } from '../lib/library';
+import { folderPathLabel, saveImportRun } from '../lib/library';
 import { extractLinksFromText } from '../lib/linkText';
 import { isArxivReference, isWebPdfUrl } from '../lib/paperId';
 
@@ -404,7 +404,7 @@ export function BatchImportModal({
           startedAt,
           finishedAt: Date.now(),
           folderId: folderId ?? null,
-          folderName: folder?.name,
+          folderName: folder ? folderPathLabel(folders, folder.id) : undefined,
           total: historyItems.length,
           succeeded: historySucceeded,
           failed: historyFailed,
@@ -724,7 +724,7 @@ export function BatchImportModal({
                   <option value="">不指定（保留原文件夹 / 未分类）</option>
                   {folders.map((folder) => (
                     <option value={folder.id} key={folder.id}>
-                      {folder.name}
+                      {folderPathLabel(folders, folder.id)}
                     </option>
                   ))}
                 </select>

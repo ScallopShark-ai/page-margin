@@ -83,6 +83,7 @@ import {
   archivePaper as archiveStoredPaper,
   createFolder as createStoredFolder,
   deleteFolder as deleteStoredFolder,
+  folderPathLabel,
   deletePaper as deleteStoredPaper,
   deleteThread as deleteStoredThread,
   getPaperBundle,
@@ -1688,9 +1689,12 @@ export default function App() {
     }
   };
 
-  const handleCreateFolder = async (name: string): Promise<Folder | null> => {
+  const handleCreateFolder = async (
+    name: string,
+    parentId: string | null,
+  ): Promise<Folder | null> => {
     try {
-      const folder = await createStoredFolder(name);
+      const folder = await createStoredFolder(name, parentId);
       setFolders((current) => [...current, folder]);
       return folder;
     } catch (error) {
@@ -1713,15 +1717,40 @@ export default function App() {
   };
 
   const handleDeleteFolder = async (folder: Folder): Promise<boolean> => {
+    const parentId = folder.parentId ?? null;
+    const childCount = folders.filter(
+      (item) => (item.parentId ?? null) === folder.id,
+    ).length;
+    const directPaperCount = papers.filter(
+      (paper) => paper.folderId === folder.id,
+    ).length;
     try {
       await deleteStoredFolder(folder.id);
-      setFolders((current) => current.filter((item) => item.id !== folder.id));
+      setFolders((current) =>
+        current
+          .filter((item) => item.id !== folder.id)
+          .map((item) =>
+            (item.parentId ?? null) === folder.id
+              ? { ...item, parentId }
+              : item,
+          ),
+      );
       setPapers((current) =>
         current.map((item) =>
-          item.folderId === folder.id ? { ...item, folderId: null } : item,
+          item.folderId === folder.id ? { ...item, folderId: parentId } : item,
         ),
       );
-      setToast(`文件夹「${folder.name}」已删除，论文已移至未分类`);
+      setToast(
+        `文件夹「${folder.name}」已删除${
+          childCount > 0 ? `，${childCount} 个子文件夹已移至上一级` : ''
+        }${
+          directPaperCount > 0
+            ? parentId
+              ? `，${directPaperCount} 篇直属论文已移至上一级`
+              : `，${directPaperCount} 篇直属论文已移至未分类`
+            : ''
+        }`,
+      );
       return true;
     } catch (error) {
       console.warn('Failed to delete folder', error);
@@ -1746,7 +1775,7 @@ export default function App() {
         ),
       );
       const folderName = folderId
-        ? folders.find((folder) => folder.id === folderId)?.name
+        ? folderPathLabel(folders, folderId)
         : '';
       setToast(
         folderId

@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import {
   Archive,
   ArrowLeft,
@@ -22,7 +29,12 @@ import {
   X,
 } from 'lucide-react';
 import type { Folder, PaperStatus, StoredPaper } from '../types';
-import { formatRelativeTime, storageUsage } from '../lib/library';
+import {
+  folderPathLabel,
+  folderScopeIds,
+  formatRelativeTime,
+  storageUsage,
+} from '../lib/library';
 import { Logo } from './Logo';
 
 interface LibraryModalProps {
@@ -39,7 +51,10 @@ interface LibraryModalProps {
   onToggleFavorite: (paper: StoredPaper) => void;
   onDeletePaper: (paper: StoredPaper) => void;
   onSetPaperStatus: (paper: StoredPaper, status: PaperStatus) => void;
-  onCreateFolder: (name: string) => Promise<Folder | null>;
+  onCreateFolder: (
+    name: string,
+    parentId: string | null,
+  ) => Promise<Folder | null>;
   onRenameFolder: (folder: Folder, name: string) => Promise<boolean>;
   onDeleteFolder: (folder: Folder) => Promise<boolean>;
   onMovePapers: (papers: StoredPaper[], folderId: string | null) => Promise<boolean>;
@@ -158,6 +173,7 @@ export function LibraryModal({
   const [storage, setStorage] = useState<{ usage: number; quota: number } | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderParentId, setNewFolderParentId] = useState<string | null>(null);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [folderDraft, setFolderDraft] = useState('');
   const [folderSaving, setFolderSaving] = useState(false);
@@ -240,6 +256,9 @@ export function LibraryModal({
       setSelectionMode(false);
       setSelectedIds(new Set());
       setMovingPapers([]);
+      setCreatingFolder(false);
+      setNewFolderName('');
+      setNewFolderParentId(null);
     }
   }, [open]);
 
@@ -247,16 +266,39 @@ export function LibraryModal({
     setSelectedIds(new Set());
   }, [filter, search, selectedFolder, sort, statusFilter]);
 
+  const folderChildren = useMemo(() => {
+    const folderIds = new Set(folders.map((folder) => folder.id));
+    const map = new Map<string | null, Folder[]>();
+    for (const folder of folders) {
+      const parentId =
+        folder.parentId && folderIds.has(folder.parentId)
+          ? folder.parentId
+          : null;
+      const siblings = map.get(parentId) ?? [];
+      siblings.push(folder);
+      map.set(parentId, siblings);
+    }
+    for (const siblings of map.values()) {
+      siblings.sort((a, b) => a.createdAt - b.createdAt);
+    }
+    return map;
+  }, [folders]);
+
+  const folderScopes = useMemo(() => folderScopeIds(folders), [folders]);
+
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
+    const selectedScope =
+      selectedFolder !== 'all' && selectedFolder !== 'unfiled'
+        ? folderScopes.get(selectedFolder) ?? new Set([selectedFolder])
+        : null;
     const rows = papers.filter((paper) => {
       if (statusFilter === 'active' && paper.status === 'archived') return false;
       if (statusFilter !== 'active' && paper.status !== statusFilter) return false;
       if (selectedFolder === 'unfiled' && paper.folderId) return false;
       if (
-        selectedFolder !== 'all' &&
-        selectedFolder !== 'unfiled' &&
-        paper.folderId !== selectedFolder
+        selectedScope &&
+        (!paper.folderId || !selectedScope.has(paper.folderId))
       ) {
         return false;
       }
@@ -304,7 +346,7 @@ export function LibraryModal({
       if (sort === 'added') return b.createdAt - a.createdAt;
       return b.lastOpenedAt - a.lastOpenedAt;
     });
-  }, [papers, search, filter, sort, selectedFolder, statusFilter]);
+  }, [papers, search, filter, sort, selectedFolder, statusFilter, folderScopes]);
 
   if (!open) return null;
 
@@ -329,15 +371,19 @@ export function LibraryModal({
     archived: papers.filter((paper) => paper.status === 'archived').length,
   };
   const unfiledCount = activePapers.filter((paper) => !paper.folderId).length;
-  const folderCount = (folderId: string) =>
-    activePapers.filter((paper) => paper.folderId === folderId).length;
+  const folderCount = (folderId: string) => {
+    const scope = folderScopes.get(folderId) ?? new Set([folderId]);
+    return activePapers.filter(
+      (paper) => paper.folderId && scope.has(paper.folderId),
+    ).length;
+  };
   const currentFolder = folders.find((folder) => folder.id === selectedFolder);
   const selectedFolderLabel =
     selectedFolder === 'all'
       ? '全部文献'
       : selectedFolder === 'unfiled'
         ? '未分类'
-        : currentFolder?.name ?? '文件夹';
+        : folderPathLabel(folders, selectedFolder) || '文件夹';
   const selectedFolderPaperCount =
     selectedFolder === 'all'
       ? activePapers.length
@@ -349,15 +395,29 @@ export function LibraryModal({
   const statusLabel =
     STATUS_OPTIONS.find((item) => item.id === statusFilter)?.label ?? '全部文献';
 
+  const beginCreateFolder = (parentId: string | null) => {
+    setEditingFolderId(null);
+    setCreatingFolder(true);
+    setNewFolderName('');
+    setNewFolderParentId(parentId);
+  };
+
+  const cancelCreateFolder = () => {
+    setCreatingFolder(false);
+    setNewFolderName('');
+    setNewFolderParentId(null);
+  };
+
   const submitCreateFolder = async (event: FormEvent) => {
     event.preventDefault();
     if (!newFolderName.trim() || folderSaving) return;
     setFolderSaving(true);
-    const folder = await onCreateFolder(newFolderName);
+    const folder = await onCreateFolder(newFolderName, newFolderParentId);
     setFolderSaving(false);
     if (!folder) return;
     setNewFolderName('');
     setCreatingFolder(false);
+    setNewFolderParentId(null);
     setSelectedFolder(folder.id);
   };
 
@@ -378,15 +438,27 @@ export function LibraryModal({
   };
 
   const confirmDeleteFolder = async (folder: Folder) => {
+    const childCount = folders.filter(
+      (item) => (item.parentId ?? null) === folder.id,
+    ).length;
+    const destination = folder.parentId
+      ? `「${folderPathLabel(folders, folder.parentId)}」`
+      : '「未分类」';
     if (
       !window.confirm(
-        `删除文件夹「${folder.name}」？其中的论文会移动到「未分类」，不会删除论文和对话。`,
+        `删除文件夹「${folder.name}」？${
+          childCount > 0
+            ? `${childCount} 个子文件夹会移到上一级；`
+            : ''
+        }直属论文会移动到${destination}，不会删除论文和对话。`,
       )
     ) {
       return;
     }
     const ok = await onDeleteFolder(folder);
-    if (ok && selectedFolder === folder.id) setSelectedFolder('unfiled');
+    if (ok && selectedFolder === folder.id) {
+      setSelectedFolder(folder.parentId ?? 'unfiled');
+    }
   };
 
   const toggleSelect = (id: string) => {
@@ -433,6 +505,145 @@ export function LibraryModal({
       setMovingPapers([]);
       setSelectedIds(new Set());
     }
+  };
+
+  const renderCreateFolderForm = (depth: number, parentId: string | null) => (
+    <form
+      className="folder-create-form"
+      style={{ marginLeft: `${depth * 14}px` }}
+      onSubmit={(event) => void submitCreateFolder(event)}
+    >
+      <FolderPlus size={13} />
+      <input
+        autoFocus
+        value={newFolderName}
+        onChange={(event) => setNewFolderName(event.target.value)}
+        placeholder={parentId ? '子文件夹名称' : '文件夹名称'}
+        maxLength={30}
+        aria-label={parentId ? '新子文件夹名称' : '新文件夹名称'}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') cancelCreateFolder();
+        }}
+      />
+      <button
+        type="submit"
+        disabled={!newFolderName.trim() || folderSaving}
+        aria-label="创建文件夹"
+      >
+        <Check size={13} />
+      </button>
+      <button
+        type="button"
+        onClick={cancelCreateFolder}
+        aria-label="取消创建文件夹"
+      >
+        <X size={12} />
+      </button>
+    </form>
+  );
+
+  const renderFolder = (folder: Folder, depth: number): ReactNode => {
+    const active = selectedFolder === folder.id;
+    const editing = editingFolderId === folder.id;
+    const children = folderChildren.get(folder.id) ?? [];
+    return (
+      <div className="folder-node" key={folder.id}>
+        {editing ? (
+          <form
+            className="folder-edit-form"
+            style={{ marginLeft: `${depth * 14}px` }}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitRenameFolder(folder);
+            }}
+          >
+            <span
+              className="folder-dot"
+              style={{ background: folder.color }}
+            />
+            <input
+              autoFocus
+              value={folderDraft}
+              onChange={(event) => setFolderDraft(event.target.value)}
+              maxLength={30}
+              aria-label="文件夹名称"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  setEditingFolderId(null);
+                  setFolderDraft('');
+                }
+              }}
+            />
+            <button
+              type="submit"
+              disabled={folderSaving}
+              aria-label="保存文件夹名称"
+            >
+              <Check size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingFolderId(null);
+                setFolderDraft('');
+              }}
+              aria-label="取消重命名"
+            >
+              <X size={12} />
+            </button>
+          </form>
+        ) : (
+          <div
+            className={`folder-row-wrap ${active ? 'is-active' : ''}`}
+          >
+            <button
+              type="button"
+              className={`folder-row ${active ? 'is-active' : ''}`}
+              style={{ paddingLeft: `${8 + depth * 14}px` }}
+              onClick={() => setSelectedFolder(folder.id)}
+              title={folderPathLabel(folders, folder.id)}
+            >
+              <span
+                className="folder-dot"
+                style={{ background: folder.color }}
+              />
+              <span className="folder-row-name">{folder.name}</span>
+              <em>{folderCount(folder.id)}</em>
+            </button>
+            <div className="folder-row-actions">
+              <button
+                type="button"
+                onClick={() => beginCreateFolder(folder.id)}
+                aria-label="新建子文件夹"
+                title="新建子文件夹"
+              >
+                <FolderPlus size={12} />
+              </button>
+              <button
+                type="button"
+                onClick={() => beginRenameFolder(folder)}
+                aria-label="重命名文件夹"
+                title="重命名"
+              >
+                <Pencil size={12} />
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDeleteFolder(folder)}
+                aria-label="删除文件夹"
+                title="删除"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          </div>
+        )}
+        {children.map((child) => renderFolder(child, depth + 1))}
+        {creatingFolder &&
+          newFolderParentId === folder.id &&
+          renderCreateFolderForm(depth + 1, folder.id)}
+      </div>
+    );
   };
 
   return (
@@ -548,145 +759,25 @@ export function LibraryModal({
 
                 {folders.length > 0 && <div className="folder-divider" />}
 
-                {folders.map((folder) => {
-                  const active = selectedFolder === folder.id;
-                  const editing = editingFolderId === folder.id;
-                  if (editing) {
-                    return (
-                      <form
-                        key={folder.id}
-                        className="folder-edit-form"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          void submitRenameFolder(folder);
-                        }}
-                      >
-                        <span
-                          className="folder-dot"
-                          style={{ background: folder.color }}
-                        />
-                        <input
-                          autoFocus
-                          value={folderDraft}
-                          onChange={(event) => setFolderDraft(event.target.value)}
-                          maxLength={30}
-                          aria-label="文件夹名称"
-                          onKeyDown={(event) => {
-                            if (event.key === 'Escape') {
-                              setEditingFolderId(null);
-                              setFolderDraft('');
-                            }
-                          }}
-                        />
-                        <button
-                          type="submit"
-                          disabled={folderSaving}
-                          aria-label="保存文件夹名称"
-                        >
-                          <Check size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingFolderId(null);
-                            setFolderDraft('');
-                          }}
-                          aria-label="取消重命名"
-                        >
-                          <X size={12} />
-                        </button>
-                      </form>
-                    );
-                  }
-                  return (
-                    <div
-                      key={folder.id}
-                      className={`folder-row-wrap ${active ? 'is-active' : ''}`}
-                    >
-                      <button
-                        type="button"
-                        className={`folder-row ${active ? 'is-active' : ''}`}
-                        onClick={() => setSelectedFolder(folder.id)}
-                      >
-                        <span
-                          className="folder-dot"
-                          style={{ background: folder.color }}
-                        />
-                        <span className="folder-row-name">{folder.name}</span>
-                        <em>{folderCount(folder.id)}</em>
-                      </button>
-                      <div className="folder-row-actions">
-                        <button
-                          type="button"
-                          onClick={() => beginRenameFolder(folder)}
-                          aria-label="重命名文件夹"
-                          title="重命名"
-                        >
-                          <Pencil size={12} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void confirmDeleteFolder(folder)}
-                          aria-label="删除文件夹"
-                          title="删除"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {creatingFolder && (
-                  <form
-                    className="folder-create-form"
-                    onSubmit={(event) => void submitCreateFolder(event)}
-                  >
-                    <FolderPlus size={13} />
-                    <input
-                      autoFocus
-                      value={newFolderName}
-                      onChange={(event) => setNewFolderName(event.target.value)}
-                      placeholder="文件夹名称"
-                      maxLength={30}
-                      aria-label="新文件夹名称"
-                      onKeyDown={(event) => {
-                        if (event.key === 'Escape') {
-                          setCreatingFolder(false);
-                          setNewFolderName('');
-                        }
-                      }}
-                    />
-                    <button
-                      type="submit"
-                      disabled={!newFolderName.trim() || folderSaving}
-                      aria-label="创建文件夹"
-                    >
-                      <Check size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCreatingFolder(false);
-                        setNewFolderName('');
-                      }}
-                      aria-label="取消创建文件夹"
-                    >
-                      <X size={12} />
-                    </button>
-                  </form>
+                {(folderChildren.get(null) ?? []).map((folder) =>
+                  renderFolder(folder, 0),
                 )}
+
+                {creatingFolder &&
+                  newFolderParentId === null &&
+                  renderCreateFolderForm(0, null)}
+
               </div>
 
               <button
                 type="button"
                 className="folder-add-button"
-                onClick={() => setCreatingFolder(true)}
+                onClick={() => beginCreateFolder(null)}
               >
                 <FolderPlus size={13} />
                 新建文件夹
               </button>
-              <p className="folder-note">删除文件夹不会删除论文</p>
+              <p className="folder-note">支持多级子文件夹；删除文件夹不会删除论文</p>
             </aside>
 
             <div className="library-content">
@@ -1112,7 +1203,7 @@ export function LibraryModal({
                               return folder ? (
                                 <span className="library-folder-label">
                                   <FolderIcon size={11} />
-                                  {folder.name}
+                                  {folderPathLabel(folders, folder.id)}
                                 </span>
                               ) : null;
                             })()}
@@ -1256,7 +1347,7 @@ export function LibraryModal({
                       className="folder-dot"
                       style={{ background: folder.color }}
                     />
-                    <span>{folder.name}</span>
+                    <span>{folderPathLabel(folders, folder.id)}</span>
                     {active && <Check size={14} />}
                   </button>
                 );

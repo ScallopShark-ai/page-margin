@@ -169,7 +169,55 @@ export async function listFolders(): Promise<Folder[]> {
   const transaction = db.transaction(FOLDERS, 'readonly');
   const rows = await requestResult(transaction.objectStore(FOLDERS).getAll());
   await transactionDone(transaction);
-  return (rows as Folder[]).sort((a, b) => a.createdAt - b.createdAt);
+  return (rows as Folder[])
+    .map((folder) => ({
+      ...folder,
+      parentId: folder.parentId ?? null,
+    }))
+    .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export function folderPathLabel(
+  folders: Folder[],
+  folderId: string | null | undefined,
+): string {
+  if (!folderId) return '';
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let current = byId.get(folderId);
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    names.unshift(current.name);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return names.join(' / ');
+}
+
+export function folderScopeIds(folders: Folder[]): Map<string, Set<string>> {
+  const children = new Map<string | null, Folder[]>();
+  for (const folder of folders) {
+    const parentId = folder.parentId ?? null;
+    const siblings = children.get(parentId) ?? [];
+    siblings.push(folder);
+    children.set(parentId, siblings);
+  }
+  const scopes = new Map<string, Set<string>>();
+  const collect = (id: string, visiting = new Set<string>()): Set<string> => {
+    const existing = scopes.get(id);
+    if (existing) return existing;
+    const scope = new Set<string>([id]);
+    scopes.set(id, scope);
+    if (visiting.has(id)) return scope;
+    visiting.add(id);
+    for (const child of children.get(id) ?? []) {
+      for (const childId of collect(child.id, visiting)) scope.add(childId);
+    }
+    visiting.delete(id);
+    return scope;
+  };
+  for (const folder of folders) collect(folder.id);
+  return scopes;
 }
 
 function folderName(value: string): string {
@@ -182,15 +230,21 @@ function folderName(value: string): string {
   return name;
 }
 
-async function assertFolderNameAvailable(name: string, exceptId?: string): Promise<void> {
+async function assertFolderNameAvailable(
+  name: string,
+  parentId: string | null,
+  exceptId?: string,
+): Promise<void> {
   const folders = await listFolders();
   if (
     folders.some(
       (folder) =>
-        folder.id !== exceptId && folder.name.toLowerCase() === name.toLowerCase(),
+        folder.id !== exceptId &&
+        (folder.parentId ?? null) === parentId &&
+        folder.name.toLowerCase() === name.toLowerCase(),
     )
   ) {
-    throw new Error('已经有同名文件夹了');
+    throw new Error('同级目录下已经有同名文件夹了');
   }
 }
 
@@ -201,14 +255,22 @@ function makeFolderId(): string {
   return `folder-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export async function createFolder(name: string): Promise<Folder> {
+export async function createFolder(
+  name: string,
+  parentId: string | null = null,
+): Promise<Folder> {
   const cleanName = folderName(name);
-  await assertFolderNameAvailable(cleanName);
   const folders = await listFolders();
+  const parent = parentId
+    ? folders.find((folder) => folder.id === parentId)
+    : null;
+  if (parentId && !parent) throw new Error('父文件夹不存在');
+  await assertFolderNameAvailable(cleanName, parentId);
   const folder: Folder = {
     id: makeFolderId(),
     name: cleanName,
-    color: FOLDER_COLORS[folders.length % FOLDER_COLORS.length],
+    color: parent?.color ?? FOLDER_COLORS[folders.length % FOLDER_COLORS.length],
+    parentId,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -221,18 +283,21 @@ export async function createFolder(name: string): Promise<Folder> {
 
 export async function renameFolder(id: string, name: string): Promise<Folder> {
   const cleanName = folderName(name);
-  await assertFolderNameAvailable(cleanName, id);
   const db = await openDatabase();
-  const transaction = db.transaction(FOLDERS, 'readwrite');
+  const readTransaction = db.transaction(FOLDERS, 'readonly');
   const folder = await requestResult(
-    transaction.objectStore(FOLDERS).get(id),
+    readTransaction.objectStore(FOLDERS).get(id),
   ) as Folder | undefined;
+  await transactionDone(readTransaction);
   if (!folder) throw new Error('文件夹不存在');
+  await assertFolderNameAvailable(cleanName, folder.parentId ?? null, id);
   const updated: Folder = {
     ...folder,
+    parentId: folder.parentId ?? null,
     name: cleanName,
     updatedAt: Date.now(),
   };
+  const transaction = db.transaction(FOLDERS, 'readwrite');
   transaction.objectStore(FOLDERS).put(updated);
   await transactionDone(transaction);
   return updated;
@@ -241,15 +306,32 @@ export async function renameFolder(id: string, name: string): Promise<Folder> {
 export async function deleteFolder(id: string): Promise<void> {
   const db = await openDatabase();
   const transaction = db.transaction([FOLDERS, PAPERS], 'readwrite');
-  transaction.objectStore(FOLDERS).delete(id);
+  const folderStore = transaction.objectStore(FOLDERS);
+  const folder = await requestResult(folderStore.get(id)) as Folder | undefined;
+  if (!folder) {
+    transaction.abort();
+    throw new Error('文件夹不存在');
+  }
+  const parentId = folder.parentId ?? null;
+  folderStore.delete(id);
+  const folderCursor = folderStore.openCursor();
+  folderCursor.onsuccess = () => {
+    const cursor = folderCursor.result;
+    if (!cursor) return;
+    const child = cursor.value as Folder;
+    if ((child.parentId ?? null) === id) {
+      cursor.update({ ...child, parentId, updatedAt: Date.now() });
+    }
+    cursor.continue();
+  };
   const papers = transaction.objectStore(PAPERS);
-  const cursorRequest = papers.openCursor();
-  cursorRequest.onsuccess = () => {
-    const cursor = cursorRequest.result;
+  const paperCursor = papers.openCursor();
+  paperCursor.onsuccess = () => {
+    const cursor = paperCursor.result;
     if (!cursor) return;
     const paper = cursor.value as StoredPaper;
     if (paper.folderId === id) {
-      cursor.update({ ...paper, folderId: null });
+      cursor.update({ ...paper, folderId: parentId, updatedAt: Date.now() });
     }
     cursor.continue();
   };
