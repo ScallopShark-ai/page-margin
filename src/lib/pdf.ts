@@ -159,6 +159,32 @@ function titleLooksGeneric(value: string): boolean {
   );
 }
 
+export async function countCjkChars(
+  doc: PDFDocumentProxy,
+  maxPages = 4,
+): Promise<number> {
+  let count = 0;
+  const total = Math.min(doc.numPages, Math.max(1, maxPages));
+  for (let pageNumber = 1; pageNumber <= total; pageNumber += 1) {
+    let page: PDFPageProxy | null = null;
+    try {
+      page = await doc.getPage(pageNumber);
+      const content = await page.getTextContent();
+      let text = '';
+      for (const item of content.items) {
+        if ('str' in item) text += item.str;
+      }
+      count += text.match(/[\u3400-\u9fff]/g)?.length ?? 0;
+      if (count >= 20) break;
+    } catch {
+      // A page can be image-only or malformed; try the next sample page.
+    } finally {
+      page?.cleanup();
+    }
+  }
+  return count;
+}
+
 /**
  * PDF metadata is often empty or holds a filename. As a fallback, find a
  * title-shaped line near the top of page one (before the abstract/authors).

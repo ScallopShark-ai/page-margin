@@ -598,24 +598,35 @@ export function PdfViewer({
         <span className="toolbar-divider" aria-hidden="true" />
 
         {translationStatus === 'ready' && translatedDoc ? (
-          <div className="pdf-lang-switch" role="group" aria-label="PDF 语言">
+          <>
+            <div className="pdf-lang-switch" role="group" aria-label="PDF 语言">
+              <button
+                type="button"
+                className={!showTranslated ? 'is-active' : ''}
+                onClick={() => onShowTranslation(false)}
+                aria-pressed={!showTranslated}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                className={showTranslated ? 'is-active' : ''}
+                onClick={() => onShowTranslation(true)}
+                aria-pressed={showTranslated}
+              >
+                中文
+              </button>
+            </div>
             <button
               type="button"
-              className={!showTranslated ? 'is-active' : ''}
-              onClick={() => onShowTranslation(false)}
-              aria-pressed={!showTranslated}
+              className="pdf-retranslate-button"
+              onClick={onTranslatePdf}
+              title="重新生成中文 PDF"
             >
-              EN
+              <RotateCcw size={12} />
+              <span>重译</span>
             </button>
-            <button
-              type="button"
-              className={showTranslated ? 'is-active' : ''}
-              onClick={() => onShowTranslation(true)}
-              aria-pressed={showTranslated}
-            >
-              中文
-            </button>
-          </div>
+          </>
         ) : (
           <button
             type="button"

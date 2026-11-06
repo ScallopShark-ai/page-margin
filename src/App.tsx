@@ -48,6 +48,7 @@ import { ArchiveConfirmModal } from './components/ArchiveConfirmModal';
 import { Logo, LogoMark } from './components/Logo';
 import {
   arxivToMeta,
+  countCjkChars,
   extractPageText,
   inferTitleFromPageText,
   loadPdfFromFile,
@@ -86,6 +87,7 @@ import {
   folderPathLabel,
   deletePaper as deleteStoredPaper,
   deleteThread as deleteStoredThread,
+  deleteTranslatedPdf,
   getPaperBundle,
   getPaperContent,
   getPaperNote,
@@ -533,6 +535,26 @@ export default function App() {
         void doc.destroy().catch(() => undefined);
         return;
       }
+      const sourceHasText =
+        paperRef.current.pages.some((page) => page.text.trim().length > 0);
+      const cjkChars = sourceHasText
+        ? await countCjkChars(doc, 4)
+        : 0;
+      if (token !== translationLoadTokenRef.current) {
+        URL.revokeObjectURL(href);
+        void doc.destroy().catch(() => undefined);
+        return;
+      }
+      if (sourceHasText && cjkChars < 20) {
+        URL.revokeObjectURL(href);
+        void doc.destroy().catch(() => undefined);
+        await deleteTranslatedPdf(paperId).catch(() => undefined);
+        setTranslationStatus('error');
+        setTranslationError(
+          '已保存的中文 PDF 中没有中文内容，可能仍是英文原文。请重新翻译。',
+        );
+        return;
+      }
       adoptTranslatedDocument(doc, href);
       setTranslationProgress(100);
     } catch (error) {
@@ -781,6 +803,28 @@ export default function App() {
       );
       if (controller.signal.aborted) return;
 
+      const translatedDoc = await loadPdfFromFile(translatedBlob);
+      if (controller.signal.aborted) {
+        void translatedDoc.destroy();
+        return;
+      }
+      const sourceHasText = session.pages.some(
+        (page) => page.text.trim().length > 0,
+      );
+      const cjkChars = sourceHasText
+        ? await countCjkChars(translatedDoc, 4)
+        : 0;
+      if (controller.signal.aborted) {
+        void translatedDoc.destroy();
+        return;
+      }
+      if (sourceHasText && cjkChars < 20) {
+        void translatedDoc.destroy();
+        throw new Error(
+          '翻译服务返回的 PDF 中没有中文内容，可能仍是英文原文。请重试，或检查翻译 API 是否真正执行了翻译。',
+        );
+      }
+
       let persisted = true;
       try {
         await saveTranslatedPdf(session.key, translatedBlob, sourceBlob.size);
@@ -788,7 +832,10 @@ export default function App() {
         persisted = false;
         console.warn('Failed to persist translated PDF', storageError);
       }
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) {
+        void translatedDoc.destroy();
+        return;
+      }
 
       translationControllersRef.current.delete(session.key);
       setTranslationJobs((current) => {
@@ -798,8 +845,8 @@ export default function App() {
         return next;
       });
 
-      if (controller.signal.aborted) return;
       if (paperRef.current?.key !== session.key) {
+        void translatedDoc.destroy();
         setToast(
           persisted
             ? `《${session.meta.title}》中文 PDF 已在后台生成`
@@ -808,11 +855,6 @@ export default function App() {
         return;
       }
 
-      const translatedDoc = await loadPdfFromFile(translatedBlob);
-      if (controller.signal.aborted) {
-        void translatedDoc.destroy();
-        return;
-      }
       const href = URL.createObjectURL(translatedBlob);
       adoptTranslatedDocument(translatedDoc, href);
       setTranslationProgress(100);
