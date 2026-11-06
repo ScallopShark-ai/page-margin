@@ -1195,6 +1195,46 @@ a {
     0 8px 24px -16px rgba(35, 29, 20, 0.35);
   backdrop-filter: blur(14px);
   transform: translateX(-50%);
+  transition:
+    transform 0.26s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.2s ease;
+}
+
+.pdf-toolbar.is-hidden {
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -56px);
+}
+
+.pdf-toolbar-handle {
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  z-index: 11;
+  display: grid;
+  width: 34px;
+  height: 17px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(44, 37, 27, 0.12);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  background: rgba(253, 251, 247, 0.78);
+  color: var(--muted);
+  opacity: 0.48;
+  transform: translateX(-50%);
+  transition:
+    opacity 0.16s ease,
+    background 0.16s ease,
+    color 0.16s ease;
+  backdrop-filter: blur(10px);
+}
+
+.pdf-toolbar-handle:hover,
+.pdf-toolbar-handle:focus-visible {
+  background: rgba(253, 251, 247, 0.96);
+  color: var(--ink-soft);
+  opacity: 1;
 }
 
 .toolbar-group {

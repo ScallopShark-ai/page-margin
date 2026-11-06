@@ -5,12 +5,14 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
 import { TextLayer } from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist';
 import {
   AlertCircle,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -253,6 +255,9 @@ export function PdfViewer({
   const [selectionPopup, setSelectionPopup] = useState<SelectionPopup | null>(null);
   const [translateSelection, setTranslateSelection] = useState(true);
   const translateSelectionRef = useRef(true);
+  const [toolbarVisible, setToolbarVisible] = useState(true);
+  const toolbarHideTimer = useRef<number | null>(null);
+  const toolbarHoveredRef = useRef(false);
   const currentPageRef = useRef(1);
   const scrollRaf = useRef(0);
   const highlightTimer = useRef<number | null>(null);
@@ -260,6 +265,56 @@ export function PdfViewer({
   const onPageChangeRef = useRef(onPageChange);
   onPageChangeRef.current = onPageChange;
   translateSelectionRef.current = translateSelection;
+
+  const clearToolbarHideTimer = useCallback(() => {
+    if (toolbarHideTimer.current !== null) {
+      window.clearTimeout(toolbarHideTimer.current);
+      toolbarHideTimer.current = null;
+    }
+  }, []);
+
+  const scheduleToolbarHide = useCallback(
+    (delay = 2800) => {
+      clearToolbarHideTimer();
+      if (toolbarHoveredRef.current) return;
+      toolbarHideTimer.current = window.setTimeout(() => {
+        toolbarHideTimer.current = null;
+        setToolbarVisible(false);
+      }, delay);
+    },
+    [clearToolbarHideTimer],
+  );
+
+  const revealToolbar = useCallback(() => {
+    setToolbarVisible(true);
+    scheduleToolbarHide();
+  }, [scheduleToolbarHide]);
+
+  useEffect(() => {
+    setToolbarVisible(true);
+    scheduleToolbarHide(3200);
+    return clearToolbarHideTimer;
+  }, [doc, scheduleToolbarHide, clearToolbarHideTimer]);
+
+  useEffect(() => {
+    if (translationStatus === 'loading' || translationStatus === 'error') {
+      clearToolbarHideTimer();
+      setToolbarVisible(true);
+      return;
+    }
+    scheduleToolbarHide();
+  }, [translationStatus, clearToolbarHideTimer, scheduleToolbarHide]);
+
+  const handleToolbarPointerMove = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    const top =
+      event.clientY - event.currentTarget.getBoundingClientRect().top;
+    if (top <= 58) {
+      setToolbarVisible(true);
+      if (translationStatus !== 'loading') scheduleToolbarHide();
+    }
+  };
 
   useEffect(() => {
     const root = scrollRef.current;
@@ -499,8 +554,48 @@ export function PdfViewer({
   const percent = Math.round(zoom * 100);
 
   return (
-    <div className="pdf-shell">
-      <div className="pdf-toolbar" role="toolbar" aria-label="PDF 阅读工具">
+    <div className="pdf-shell" onPointerMove={handleToolbarPointerMove}>
+      {!toolbarVisible && (
+        <button
+          type="button"
+          className="pdf-toolbar-handle"
+          onPointerEnter={revealToolbar}
+          onClick={revealToolbar}
+          aria-label="显示 PDF 阅读工具栏"
+          title="显示阅读工具栏"
+        >
+          <ChevronDown size={13} />
+        </button>
+      )}
+      <div
+        className={`pdf-toolbar ${toolbarVisible ? '' : 'is-hidden'}`}
+        role="toolbar"
+        aria-label="PDF 阅读工具"
+        onPointerEnter={() => {
+          toolbarHoveredRef.current = true;
+          clearToolbarHideTimer();
+          setToolbarVisible(true);
+        }}
+        onPointerLeave={() => {
+          toolbarHoveredRef.current = false;
+          if (translationStatus !== 'loading') scheduleToolbarHide(900);
+        }}
+        onFocusCapture={() => {
+          toolbarHoveredRef.current = true;
+          clearToolbarHideTimer();
+          setToolbarVisible(true);
+        }}
+        onBlurCapture={(event) => {
+          if (
+            event.relatedTarget instanceof Node &&
+            event.currentTarget.contains(event.relatedTarget)
+          ) {
+            return;
+          }
+          toolbarHoveredRef.current = false;
+          if (translationStatus !== 'loading') scheduleToolbarHide(900);
+        }}
+      >
         <div className="toolbar-group page-nav">
           <button
             type="button"
