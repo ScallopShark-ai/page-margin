@@ -738,7 +738,12 @@ export default function App() {
       const sourceBlob = source;
 
       const safeKey = session.key.replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 80);
-      const fileName = `${safeKey || 'haila-paper'}.pdf`;
+      // A fresh name per attempt prevents pdf2zh from returning the previous
+      // failed task when the user retries the same paper.
+      const attemptSuffix = `${Date.now().toString(36)}-${Math.random()
+        .toString(36)
+        .slice(2, 6)}`;
+      const fileName = `${safeKey || 'haila-paper'}-${attemptSuffix}.pdf`;
       setTranslationProgress(4);
       const submitted = await submitPdf2zh(
         sourceBlob,
@@ -774,6 +779,7 @@ export default function App() {
         translatedName,
         controller.signal,
       );
+      if (controller.signal.aborted) return;
 
       let persisted = true;
       try {
@@ -782,6 +788,7 @@ export default function App() {
         persisted = false;
         console.warn('Failed to persist translated PDF', storageError);
       }
+      if (controller.signal.aborted) return;
 
       translationControllersRef.current.delete(session.key);
       setTranslationJobs((current) => {
@@ -791,6 +798,7 @@ export default function App() {
         return next;
       });
 
+      if (controller.signal.aborted) return;
       if (paperRef.current?.key !== session.key) {
         setToast(
           persisted
@@ -801,6 +809,10 @@ export default function App() {
       }
 
       const translatedDoc = await loadPdfFromFile(translatedBlob);
+      if (controller.signal.aborted) {
+        void translatedDoc.destroy();
+        return;
+      }
       const href = URL.createObjectURL(translatedBlob);
       adoptTranslatedDocument(translatedDoc, href);
       setTranslationProgress(100);
@@ -838,6 +850,25 @@ export default function App() {
         translationControllersRef.current.delete(session.key);
       }
     }
+  };
+
+  const handleCancelTranslation = () => {
+    const session = paperRef.current;
+    if (!session) return;
+    const controller = translationControllersRef.current.get(session.key);
+    translationControllersRef.current.delete(session.key);
+    controller?.abort();
+    translationLoadTokenRef.current += 1;
+    setTranslationJobs((current) => {
+      if (!current[session.key]) return current;
+      const next = { ...current };
+      delete next[session.key];
+      return next;
+    });
+    setTranslationStatus('idle');
+    setTranslationProgress(0);
+    setTranslationError('');
+    setToast('已取消 PDF 翻译');
   };
 
   const activatePaper = (
@@ -2586,6 +2617,7 @@ export default function App() {
             translationProgress={translationProgress}
             translationError={translationError}
             onTranslatePdf={() => void handleTranslatePdf()}
+            onCancelTranslation={handleCancelTranslation}
             onShowTranslation={setShowTranslated}
             onOpenTranslationLogs={() => setPdfLogsOpen(true)}
             jumpRequest={jumpRequest}

@@ -10,6 +10,7 @@ import {
 import { TextLayer } from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist';
 import {
+  AlertCircle,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -19,6 +20,9 @@ import {
   Maximize2,
   Minus,
   Plus,
+  RotateCcw,
+  Settings2,
+  X,
 } from 'lucide-react';
 import type { JumpRequest, ModelConfig } from '../types';
 import { TranslationPopover } from './TranslationPopover';
@@ -33,6 +37,7 @@ interface PdfViewerProps {
   translationProgress: number;
   translationError: string;
   onTranslatePdf: () => void;
+  onCancelTranslation: () => void;
   onShowTranslation: (show: boolean) => void;
   onOpenTranslationLogs: () => void;
   jumpRequest: JumpRequest | null;
@@ -223,6 +228,7 @@ export function PdfViewer({
   translationProgress,
   translationError,
   onTranslatePdf,
+  onCancelTranslation,
   onShowTranslation,
   onOpenTranslationLogs,
   jumpRequest,
@@ -640,6 +646,17 @@ export function PdfViewer({
             </span>
           </button>
         )}
+        {translationStatus === 'loading' && (
+          <button
+            type="button"
+            className="pdf-translation-cancel"
+            onClick={onCancelTranslation}
+            title="取消当前 PDF 翻译"
+          >
+            <X size={12} />
+            取消
+          </button>
+        )}
         {translationStatus === 'error' && (
           <button
             type="button"
@@ -666,6 +683,27 @@ export function PdfViewer({
           <span>划词</span>
         </button>
       </div>
+
+      {translationStatus === 'error' && (
+        <div className="pdf-translation-error" role="alert">
+          <AlertCircle size={15} />
+          <span title={translationError}>
+            {translationError || 'PDF 翻译失败，请检查翻译 API 配置或服务日志。'}
+          </span>
+          <button type="button" onClick={onTranslatePdf}>
+            <RotateCcw size={12} />
+            重试翻译
+          </button>
+          <button type="button" onClick={onOpenSettings}>
+            <Settings2 size={12} />
+            翻译设置
+          </button>
+          <button type="button" onClick={onOpenTranslationLogs}>
+            <FileText size={12} />
+            日志
+          </button>
+        </div>
+      )}
 
       <div
         ref={scrollRef}

@@ -9098,6 +9098,75 @@ body.is-resizing * {
   color: var(--accent-dark);
 }
 
+.pdf-translation-cancel {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 3px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--muted-dark);
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+.pdf-translation-cancel:hover {
+  border-color: var(--line-strong);
+  color: var(--ink-soft);
+}
+
+.pdf-translation-error {
+  position: absolute;
+  top: 58px;
+  left: 50%;
+  z-index: 13;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: min(calc(100% - 32px), 760px);
+  padding: 8px 10px;
+  border: 1px solid rgba(220, 89, 55, 0.24);
+  border-radius: 8px;
+  background: var(--red-soft);
+  box-shadow: 0 10px 28px -20px rgba(40, 20, 10, 0.55);
+  color: var(--red);
+  font-size: 9.5px;
+  transform: translateX(-50%);
+}
+
+.pdf-translation-error > svg {
+  flex: none;
+}
+
+.pdf-translation-error > span {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-translation-error button {
+  display: inline-flex;
+  height: 24px;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding: 0 7px;
+  border: 1px solid rgba(220, 89, 55, 0.25);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--accent-dark);
+  font-size: 8.5px;
+}
+
+.pdf-translation-error button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .pdf-lang-switch {
   display: flex;
   align-items: center;
