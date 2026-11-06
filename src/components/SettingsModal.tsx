@@ -83,6 +83,25 @@ function providerMonogram(id: ProviderId): string {
   return '··';
 }
 
+function pdf2zhProvider(service: string): ProviderId {
+  if (service === 'deepseek' || service === 'openai') return service;
+  return 'custom';
+}
+
+function isLocalModelApi(value: string): boolean {
+  try {
+    const host = new URL(value).hostname;
+    return (
+      host === '127.0.0.1' ||
+      host === 'localhost' ||
+      host === '::1' ||
+      host === '0.0.0.0'
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function SettingsModal({
   open,
   config,
@@ -109,9 +128,14 @@ export function SettingsModal({
   const [modelsError, setModelsError] = useState('');
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState('');
+  const [pdfModelOptions, setPdfModelOptions] = useState<ModelListItem[]>([]);
+  const [pdfModelsLoading, setPdfModelsLoading] = useState(false);
+  const [pdfModelsError, setPdfModelsError] = useState('');
+  const [pdfModelRefreshKey, setPdfModelRefreshKey] = useState(0);
   const [profiles, setProfiles] = useState<SavedModelProfile[]>([]);
   const [savedNotice, setSavedNotice] = useState('');
   const modelsAbortRef = useRef<AbortController | null>(null);
+  const pdfModelsAbortRef = useRef<AbortController | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -159,6 +183,86 @@ export function SettingsModal({
     const timer = window.setTimeout(() => setSavedNotice(''), 2600);
     return () => window.clearTimeout(timer);
   }, [savedNotice]);
+
+  useEffect(() => {
+    if (!open) return;
+    const baseUrl = pdf2zhDraft.apiUrl.trim();
+    const provider = pdf2zhProvider(pdf2zhDraft.service);
+    const apiKey = pdf2zhDraft.apiKey.trim();
+    const canUseServerKey =
+      Boolean(pdf2zhDraft.useServerKey && server?.serverConfigured) &&
+      server?.provider === provider;
+    const canFetch =
+      Boolean(baseUrl) &&
+      (Boolean(apiKey) ||
+        canUseServerKey ||
+        (provider === 'custom' && isLocalModelApi(baseUrl)));
+
+    pdfModelsAbortRef.current?.abort();
+    pdfModelsAbortRef.current = null;
+    if (!canFetch) {
+      setPdfModelsLoading(false);
+      setPdfModelOptions([]);
+      setPdfModelsError('');
+      return;
+    }
+
+    setPdfModelOptions([]);
+    setPdfModelsError('');
+    setPdfModelsLoading(false);
+
+    const timer = window.setTimeout(() => {
+      const controller = new AbortController();
+      pdfModelsAbortRef.current = controller;
+      setPdfModelsLoading(true);
+      setPdfModelsError('');
+      void fetchModelList(
+        { provider, apiKey, baseUrl },
+        controller.signal,
+      )
+        .then((options) => {
+          if (controller.signal.aborted) return;
+          setPdfModelOptions(options);
+          if (options.length === 0) {
+            setPdfModelsError('接口返回了 0 个模型，请检查这个网关是否开放 /models');
+            return;
+          }
+          setPdf2zhDraft((current) =>
+            current.model.trim()
+              ? current
+              : { ...current, model: options[0].id },
+          );
+        })
+        .catch((caught) => {
+          if (controller.signal.aborted) return;
+          setPdfModelOptions([]);
+          setPdfModelsError(
+            caught instanceof Error ? caught.message : '读取模型列表失败',
+          );
+        })
+        .finally(() => {
+          if (pdfModelsAbortRef.current === controller) {
+            pdfModelsAbortRef.current = null;
+            setPdfModelsLoading(false);
+          }
+        });
+    }, 500);
+
+    return () => {
+      window.clearTimeout(timer);
+      pdfModelsAbortRef.current?.abort();
+      pdfModelsAbortRef.current = null;
+    };
+  }, [
+    open,
+    pdf2zhDraft.apiUrl,
+    pdf2zhDraft.apiKey,
+    pdf2zhDraft.service,
+    pdf2zhDraft.useServerKey,
+    server?.serverConfigured,
+    server?.provider,
+    pdfModelRefreshKey,
+  ]);
 
   if (!open) return null;
 
@@ -875,25 +979,88 @@ export function SettingsModal({
               </div>
             </label>
             <label className="settings-field">
-              模型名称
-              <input
-                value={pdf2zhDraft.model}
-                onChange={(event) =>
-                  setPdf2zhDraft((current) => ({
-                    ...current,
-                    model: event.target.value,
-                  }))
-                }
-                placeholder={
-                  pdf2zhDraft.service === 'deepseek'
-                    ? 'deepseek-flash'
-                    : pdf2zhDraft.service === 'openai'
-                      ? 'gpt-4o-mini'
-                      : '你的模型名称'
-                }
-                spellCheck={false}
-                aria-label="PDF 翻译模型"
-              />
+              <span className="model-field-head">
+                模型名称
+                <button
+                  type="button"
+                  className="model-fetch-button"
+                  onClick={() => setPdfModelRefreshKey((value) => value + 1)}
+                  disabled={pdfModelsLoading}
+                  title="从 PDF 翻译 API 读取可用模型"
+                >
+                  {pdfModelsLoading ? (
+                    <Loader2 size={11} className="spin" />
+                  ) : (
+                    <RefreshCw size={11} />
+                  )}
+                  {pdfModelsLoading
+                    ? '读取中'
+                    : pdfModelOptions.length > 0
+                      ? '刷新'
+                      : '获取列表'}
+                </button>
+              </span>
+              <div className="pdf-model-controls">
+                <input
+                  value={pdf2zhDraft.model}
+                  onChange={(event) =>
+                    setPdf2zhDraft((current) => ({
+                      ...current,
+                      model: event.target.value,
+                    }))
+                  }
+                  placeholder={
+                    pdf2zhDraft.service === 'deepseek'
+                      ? 'deepseek-flash'
+                      : pdf2zhDraft.service === 'openai'
+                        ? 'gpt-4o-mini'
+                        : '你的模型名称'
+                  }
+                  spellCheck={false}
+                  aria-label="PDF 翻译模型"
+                />
+                <select
+                  value={
+                    pdfModelOptions.some(
+                      (option) => option.id === pdf2zhDraft.model,
+                    )
+                      ? pdf2zhDraft.model
+                      : ''
+                  }
+                  onChange={(event) => {
+                    const model = event.target.value;
+                    if (!model) return;
+                    setPdf2zhDraft((current) => ({ ...current, model }));
+                  }}
+                  disabled={pdfModelsLoading || pdfModelOptions.length === 0}
+                  aria-label="选择 PDF 翻译模型"
+                >
+                  <option value="">
+                    {pdfModelsLoading
+                      ? '正在读取…'
+                      : pdfModelOptions.length > 0
+                        ? `选择模型（${pdfModelOptions.length}）`
+                        : '暂无可选模型'}
+                  </option>
+                  {pdfModelOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <span
+                className={`pdf-model-status ${
+                  pdfModelsError ? 'is-error' : ''
+                }`}
+              >
+                {pdfModelsLoading
+                  ? '正在读取 PDF 翻译 API 的模型列表…'
+                  : pdfModelsError ||
+                    (pdfModelOptions.length > 0
+                      ? `已读取 ${pdfModelOptions.length} 个可用模型，也可以手动填写`
+                      : '填写 API Key 后会自动读取可用模型')}
+              </span>
             </label>
             <p className="settings-pdf2zh-hint">
               支持任意 OpenAI 兼容 API。DeepSeek / OpenAI 会根据 URL 自动识别，

@@ -80,7 +80,7 @@ const STATUS_OPTIONS: {
   label: string;
   icon: typeof Circle;
 }[] = [
-  { id: 'active', label: '未归档', icon: BookOpen },
+  { id: 'active', label: '常规', icon: BookOpen },
   { id: 'unread', label: '未读', icon: Circle },
   { id: 'reading', label: '进行中', icon: Clock3 },
   { id: 'read', label: '已读', icon: Check },
@@ -286,15 +286,30 @@ export function LibraryModal({
 
   const folderScopes = useMemo(() => folderScopeIds(folders), [folders]);
 
+  const statusPool = useMemo(() => {
+    if (statusFilter === 'active') {
+      return papers.filter(
+        (paper) => paper.status !== 'archived' && paper.status !== 'read',
+      );
+    }
+    if (statusFilter === 'archived') {
+      return papers.filter((paper) => paper.status === 'archived');
+    }
+    return papers.filter((paper) => paper.status === statusFilter);
+  }, [papers, statusFilter]);
+
+  const readPapers = useMemo(
+    () => papers.filter((paper) => paper.status === 'read'),
+    [papers],
+  );
+
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     const selectedScope =
       selectedFolder !== 'all' && selectedFolder !== 'unfiled'
         ? folderScopes.get(selectedFolder) ?? new Set([selectedFolder])
         : null;
-    const rows = papers.filter((paper) => {
-      if (statusFilter === 'active' && paper.status === 'archived') return false;
-      if (statusFilter !== 'active' && paper.status !== statusFilter) return false;
+    const rows = statusPool.filter((paper) => {
       if (selectedFolder === 'unfiled' && paper.folderId) return false;
       if (
         selectedScope &&
@@ -346,7 +361,7 @@ export function LibraryModal({
       if (sort === 'added') return b.createdAt - a.createdAt;
       return b.lastOpenedAt - a.lastOpenedAt;
     });
-  }, [papers, search, filter, sort, selectedFolder, statusFilter, folderScopes]);
+  }, [statusPool, search, filter, sort, selectedFolder, folderScopes]);
 
   if (!open) return null;
 
@@ -364,16 +379,16 @@ export function LibraryModal({
   );
   const favoriteCount = activePapers.filter((paper) => paper.favorite).length;
   const statusCounts: Record<StatusFilter, number> = {
-    active: activePapers.length,
+    active: activePapers.filter((paper) => paper.status !== 'read').length,
     unread: activePapers.filter((paper) => paper.status === 'unread').length,
     reading: activePapers.filter((paper) => paper.status === 'reading').length,
-    read: activePapers.filter((paper) => paper.status === 'read').length,
+    read: readPapers.length,
     archived: papers.filter((paper) => paper.status === 'archived').length,
   };
-  const unfiledCount = activePapers.filter((paper) => !paper.folderId).length;
+  const unfiledCount = statusPool.filter((paper) => !paper.folderId).length;
   const folderCount = (folderId: string) => {
     const scope = folderScopes.get(folderId) ?? new Set([folderId]);
-    return activePapers.filter(
+    return statusPool.filter(
       (paper) => paper.folderId && scope.has(paper.folderId),
     ).length;
   };
@@ -386,7 +401,7 @@ export function LibraryModal({
         : folderPathLabel(folders, selectedFolder) || '文件夹';
   const selectedFolderPaperCount =
     selectedFolder === 'all'
-      ? activePapers.length
+      ? statusPool.length
       : selectedFolder === 'unfiled'
         ? unfiledCount
         : currentFolder
@@ -394,6 +409,19 @@ export function LibraryModal({
           : 0;
   const statusLabel =
     STATUS_OPTIONS.find((item) => item.id === statusFilter)?.label ?? '全部文献';
+  const readInSelection =
+    statusFilter === 'active'
+      ? readPapers.filter((paper) => {
+          if (selectedFolder === 'all') return true;
+          if (selectedFolder === 'unfiled') return !paper.folderId;
+          if (!paper.folderId) return false;
+          const scope =
+            folderScopes.get(selectedFolder) ?? new Set([selectedFolder]);
+          return scope.has(paper.folderId);
+        }).length
+      : 0;
+  const onlyReadInSelection =
+    statusFilter === 'active' && readInSelection > 0;
 
   const beginCreateFolder = (parentId: string | null) => {
     setEditingFolderId(null);
@@ -743,7 +771,7 @@ export function LibraryModal({
                 >
                   <BookOpen size={13} />
                   <span className="folder-row-name">全部文献</span>
-                  <em>{activePapers.length}</em>
+                  <em>{statusPool.length}</em>
                 </button>
                 <button
                   type="button"
@@ -852,6 +880,16 @@ export function LibraryModal({
                 </button>
               );
             })}
+            {statusFilter === 'active' && readInSelection > 0 && (
+              <button
+                type="button"
+                className="library-read-hidden"
+                onClick={() => setStatusFilter('read')}
+                title="已读论文默认从常规视图隐藏"
+              >
+                已读 {readInSelection} 篇已隐藏 · 查看
+              </button>
+            )}
           </div>
 
           {error && <div className="library-error">{error}</div>}
@@ -884,15 +922,46 @@ export function LibraryModal({
                 <FolderIcon size={25} strokeWidth={1.4} />
               </div>
               <h2>
-                {selectedFolder === 'unfiled' ? '未分类里还没有论文' : '这个文件夹还没有论文'}
+                {onlyReadInSelection
+                  ? selectedFolder === 'unfiled'
+                    ? '未分类里只有已读论文'
+                    : '这个文件夹里只有已读论文'
+                  : selectedFolder === 'unfiled'
+                    ? '未分类里还没有论文'
+                    : '这个文件夹还没有论文'}
               </h2>
-              <p>打开「全部文献」中的卡片，使用文件夹按钮把论文移到这里。</p>
+              <p>
+                {onlyReadInSelection
+                  ? '已读论文默认从常规视图隐藏；分类、原文和报告都保留。'
+                  : '打开「全部文献」中的卡片，使用文件夹按钮把论文移到这里。'}
+              </p>
               <button
                 type="button"
                 className="library-empty-button"
-                onClick={() => setSelectedFolder('all')}
+                onClick={() =>
+                  onlyReadInSelection
+                    ? setStatusFilter('read')
+                    : setSelectedFolder('all')
+                }
               >
-                查看全部文献
+                {onlyReadInSelection
+                  ? `查看 ${readInSelection} 篇已读`
+                  : '查看全部文献'}
+              </button>
+            </div>
+          ) : filtered.length === 0 && onlyReadInSelection ? (
+            <div className="library-empty compact">
+              <div className="library-empty-mark">
+                <Check size={25} strokeWidth={1.4} />
+              </div>
+              <h2>常规视图没有论文</h2>
+              <p>已读论文默认隐藏，但仍保留分类、原文和报告。</p>
+              <button
+                type="button"
+                className="library-empty-button"
+                onClick={() => setStatusFilter('read')}
+              >
+                查看 {readInSelection} 篇已读
               </button>
             </div>
           ) : filtered.length === 0 ? (

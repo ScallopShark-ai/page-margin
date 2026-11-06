@@ -5119,6 +5119,26 @@ body.is-resizing * {
   color: var(--accent-dark);
 }
 
+.library-read-hidden {
+  height: 27px;
+  margin-left: auto;
+  padding: 0 9px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-dark);
+  font-size: 8.5px;
+  white-space: nowrap;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.library-read-hidden:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .library-sort {
   display: flex;
   align-items: center;
@@ -9156,6 +9176,49 @@ body.is-resizing * {
   margin-top: 10px;
 }
 
+.pdf-model-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pdf-model-controls input {
+  flex: 1;
+  min-width: 0;
+}
+
+.pdf-model-controls select {
+  width: auto;
+  max-width: 220px;
+  flex: 0 1 220px;
+  height: 38px;
+  padding: 0 28px 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  outline: 0;
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.pdf-model-controls select:disabled {
+  color: var(--muted);
+  opacity: 0.72;
+}
+
+.settings-field > .pdf-model-status {
+  display: block;
+  color: var(--muted);
+  font-size: 8.5px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+
+.settings-field > .pdf-model-status.is-error {
+  color: var(--red);
+}
+
 .settings-pdf2zh .settings-field select {
   width: 100%;
   height: 38px;
@@ -9170,6 +9233,14 @@ body.is-resizing * {
 
 .settings-pdf2zh .settings-field select:focus {
   border-color: rgba(220, 89, 55, 0.55);
+}
+
+.settings-pdf2zh .pdf-model-controls select {
+  width: auto;
+  max-width: 220px;
+  flex: 0 1 220px;
+  padding: 0 28px 0 9px;
+  font-size: 10px;
 }
 
 .settings-pdf2zh .settings-pdf2zh-hint {
