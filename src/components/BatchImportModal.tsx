@@ -48,7 +48,7 @@ interface ImportTask {
   warning?: string;
 }
 
-const MAX_FILE_BYTES = 80 * 1024 * 1024;
+const MAX_FILE_BYTES = 120 * 1024 * 1024;
 
 function isPdfFile(file: File): boolean {
   return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
@@ -186,7 +186,7 @@ export function BatchImportModal({
     }
     setFiles(next);
     if (rejected > 0) {
-      setError(`已忽略 ${rejected} 个非 PDF 或超过 80 MB 的文件`);
+      setError(`已忽略 ${rejected} 个非 PDF 或超过 120 MB 的文件`);
     }
   };
 
@@ -662,7 +662,7 @@ export function BatchImportModal({
                 <Upload size={18} strokeWidth={1.7} />
                 <div>
                   <strong>拖入多个 PDF，或点击选择</strong>
-                  <span>单份不超过 80 MB</span>
+                  <span>单份不超过 120 MB</span>
                 </div>
                 <input
                   ref={fileRef}

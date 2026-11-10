@@ -4,7 +4,7 @@ import { readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const MAX_PDF_BYTES = 80 * 1024 * 1024;
+const MAX_PDF_BYTES = 120 * 1024 * 1024;
 const SERVICE_TIMEOUT_MS = 45_000;
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LOG_SOURCES = {
@@ -286,7 +286,7 @@ export function createPdf2zhRouter(options = {}) {
           throw pdf2zhError('没有收到 PDF 文件');
         }
         if (pdf.length > MAX_PDF_BYTES) {
-          throw pdf2zhError('PDF 文件超过 80 MB');
+          throw pdf2zhError('PDF 文件超过 120 MB');
         }
         if (!pdf.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
           throw pdf2zhError('上传内容不是有效的 PDF');

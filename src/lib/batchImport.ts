@@ -234,8 +234,8 @@ async function importLocalFile(
   if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
     throw new Error('不是 PDF 文件');
   }
-  if (file.size > 80 * 1024 * 1024) {
-    throw new Error('PDF 文件超过 80 MB');
+  if (file.size > 120 * 1024 * 1024) {
+    throw new Error('PDF 文件超过 120 MB');
   }
 
   onProgress({ stage: '读取本地 PDF', detail: file.name, percent: 8 });

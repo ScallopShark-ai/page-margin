@@ -85,8 +85,8 @@ export function Landing({
       setLocalError('请选择 PDF 文件');
       return;
     }
-    if (file.size > 80 * 1024 * 1024) {
-      setLocalError('PDF 文件过大（超过 80 MB）');
+    if (file.size > 120 * 1024 * 1024) {
+      setLocalError('PDF 文件过大（超过 120 MB）');
       return;
     }
     onFile(file);

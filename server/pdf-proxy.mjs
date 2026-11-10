@@ -1,7 +1,7 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
-const MAX_PDF_BYTES = 80 * 1024 * 1024;
+const MAX_PDF_BYTES = 120 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
 const USER_AGENT =
   'Haila/1.1 (local paper reader; PDF import) Node.js';
@@ -195,12 +195,12 @@ async function readBodyWithLimit(response) {
   const declared = Number(response.headers.get('content-length') || 0);
   if (declared > MAX_PDF_BYTES) {
     await response.body?.cancel().catch(() => undefined);
-    throw httpError('PDF 文件超过 80 MB，无法导入', 413);
+    throw httpError('PDF 文件超过 120 MB，无法导入', 413);
   }
   if (!response.body) {
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.length > MAX_PDF_BYTES) {
-      throw httpError('PDF 文件超过 80 MB，无法导入', 413);
+      throw httpError('PDF 文件超过 120 MB，无法导入', 413);
     }
     return buffer;
   }
@@ -215,7 +215,7 @@ async function readBodyWithLimit(response) {
       total += value.byteLength;
       if (total > MAX_PDF_BYTES) {
         await reader.cancel().catch(() => undefined);
-        throw httpError('PDF 文件超过 80 MB，无法导入', 413);
+        throw httpError('PDF 文件超过 120 MB，无法导入', 413);
       }
       chunks.push(Buffer.from(value));
     }
