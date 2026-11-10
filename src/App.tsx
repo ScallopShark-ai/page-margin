@@ -44,6 +44,7 @@ import { PdfViewer } from './components/PdfViewer';
 import { ChatPanel } from './components/ChatPanel';
 import { SettingsModal } from './components/SettingsModal';
 import { LibraryModal } from './components/LibraryModal';
+import { LiteratureSearchPage } from './components/LiteratureSearchPage';
 import { ArchiveConfirmModal } from './components/ArchiveConfirmModal';
 import { Logo, LogoMark } from './components/Logo';
 import {
@@ -268,6 +269,7 @@ export default function App() {
   const [papers, setPapers] = useState<StoredPaper[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [libraryLoading, setLibraryLoading] = useState(true);
   const [libraryError, setLibraryError] = useState('');
   const [libraryBusyId, setLibraryBusyId] = useState<string | null>(null);
@@ -2516,6 +2518,21 @@ export default function App() {
     />
   );
 
+  const literatureSearchPage = (
+    <LiteratureSearchPage
+      open={searchOpen}
+      config={config}
+      modelReady={modelReady}
+      folders={folders}
+      onClose={() => setSearchOpen(false)}
+      onOpenSettings={() => {
+        setSearchOpen(false);
+        setSettingsOpen(true);
+      }}
+      onImported={() => void refreshLibrary(false)}
+    />
+  );
+
   const libraryModal = (
     <LibraryModal
       open={libraryOpen}
@@ -2539,6 +2556,7 @@ export default function App() {
       onMovePapers={handleMovePapers}
       onOpenBatchImport={() => openBatchImport()}
       onOpenImportHistory={() => setImportHistoryOpen(true)}
+      onOpenSearch={() => setSearchOpen(true)}
     />
   );
 
@@ -2795,6 +2813,7 @@ export default function App() {
           onFile={(file) => void openLocalFile(file)}
           onOpenBatchImport={() => openBatchImport()}
           onOpenLibrary={handleOpenLibrary}
+          onOpenSearch={() => setSearchOpen(true)}
           onOpenPaper={(record) => void handleOpenStoredPaper(record)}
           onOpenSettings={() => setSettingsOpen(true)}
           onDismissError={() => setLoadError('')}
@@ -2834,6 +2853,7 @@ export default function App() {
       )}
 
       {archiveConfirmModal}
+      {literatureSearchPage}
       {settingsModal}
       {libraryModal}
       {batchModal}

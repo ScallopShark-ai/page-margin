@@ -9,6 +9,7 @@ import {
   resolveArxiv,
 } from './arxiv.mjs';
 import { fetchPdfFromUrl } from './pdf-proxy.mjs';
+import { formatOpenAlexContext, searchOpenAlex } from './literature.mjs';
 import {
   createPdf2zhRouter,
   purgePaperTranslationArtifacts,
@@ -259,6 +260,152 @@ app.get('/api/pdf/fetch', async (req, res, next) => {
     }
     if (res.headersSent) {
       res.end();
+      return;
+    }
+    next(error);
+  }
+});
+
+app.post('/api/search', async (req, res, next) => {
+  let headersSent = false;
+  try {
+    const messages = sanitizeMessages(req.body?.messages);
+    if (messages.length === 0) throw httpError('请输入文献搜索需求');
+
+    const { provider, apiKey, baseUrl, model } = resolveModelRequest(
+      req.body?.config ?? {},
+    );
+    const useWebSearch = provider === 'openai';
+    let openAlexResults = [];
+    let system;
+    if (useWebSearch) {
+      system = `你是海拉的文献发现助手，通过 OpenAI 联网搜索帮助用户寻找学术论文。
+
+工作方式：
+1. 先理解用户的研究方向、时间范围、方法或应用要求；信息不足时先提出一个简短澄清问题。
+2. 必须使用联网搜索，不要只凭记忆列出论文。优先推荐近 5 年、顶会/顶刊、高相关或高引用的工作。
+3. 每条候选必须给出：标题、作者、年份/发表处、与需求的关系（一句话），以及可验证的原文链接。
+4. 只推荐搜索结果中能确认真实存在的论文，绝不编造标题、作者或链接。
+5. 为了便于导入，原文链接优先给出 arXiv 的 abs/pdf 链接或可直接下载的 PDF URL，并在链接旁标注「可导入」。
+6. 用中文回答，使用 Markdown 列表，不要用代码块。不要声称已经替用户导入文件；导入由用户在结果卡片上确认。
+7. 最后询问用户是否还要按年份、发表处、方法或综述/实验论文进一步筛选。`;
+    } else {
+      const latestQuery = messages
+        .filter((message) => message.role === 'user')
+        .slice(-3)
+        .map((message) => message.content)
+        .join(' ')
+        .trim();
+      openAlexResults = await searchOpenAlex(latestQuery);
+      system = `你是海拉的文献发现助手。本次已经通过 OpenAlex 文献库检索到下面的真实结果。
+
+${formatOpenAlexContext(openAlexResults)}
+
+工作方式：
+1. 只能基于上面的检索结果回答，不要补充无法验证的论文，也不要编造标题、作者或链接。
+2. 根据用户的研究方向、年份、方法或应用要求筛选并排序；每条给出标题、作者、年份/发表处、与需求的关系（一句话）和上面的链接。
+3. 优先推荐有开放 PDF 或 arXiv 链接的论文，并在链接旁标注「可导入」。
+4. 用中文和 Markdown 列表回答，不要用代码块。不要声称已经替用户导入文件；导入由用户在结果卡片上确认。
+5. 如果结果不够匹配，明确说明，并建议用户换关键词或缩小范围。`;
+    }
+
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+    headersSent = true;
+
+    const controller = new AbortController();
+    let closed = false;
+    const send = (payload) => {
+      if (closed || res.writableEnded) return;
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    };
+    const heartbeat = setInterval(() => {
+      if (!closed && !res.writableEnded) res.write(': keep-alive\n\n');
+    }, 15000);
+
+    res.on('close', () => {
+      if (!res.writableEnded) {
+        closed = true;
+        controller.abort();
+      }
+    });
+
+    send({
+      type: 'meta',
+      meta: {
+        provider,
+        model,
+        webSearch: useWebSearch,
+        searchMode: useWebSearch ? 'web' : 'openalex',
+      },
+    });
+
+    try {
+      const result = await streamPaperCompletion({
+        provider,
+        apiKey,
+        baseUrl,
+        model,
+        system,
+        messages,
+        signal: controller.signal,
+        webSearch: useWebSearch,
+        onDelta: (text) => send({ type: 'delta', text }),
+      });
+      const sources = Array.isArray(result.citations) ? result.citations : [];
+      if (sources.length > 0) {
+        const sourceText = `\n\n---\n\n**联网来源**\n${sources
+          .slice(0, 10)
+          .map((source) => `- [${source.title || source.url}](${source.url})`)
+          .join('\n')}`;
+        send({ type: 'delta', text: sourceText });
+      } else if (openAlexResults.length > 0) {
+        const sourceText = `\n\n---\n\n**文献库检索结果**\n${openAlexResults
+          .map(
+            (item) =>
+              `- [${item.title}](${item.url})${
+                item.pdfUrl || item.arxivUrl ? ' · 可导入' : ''
+              }`,
+          )
+          .join('\n')}`;
+        send({ type: 'delta', text: sourceText });
+      }
+      send({
+        type: 'done',
+        usage: result.usage || null,
+        finishReason: result.finishReason || '',
+      });
+    } catch (error) {
+      if (error?.code === 'CLIENT_ABORT') {
+        if (!closed) send({ type: 'aborted' });
+      } else {
+        send({
+          type: 'error',
+          message:
+            error instanceof Error ? error.message : '文献搜索时发生未知错误',
+          status: error?.status || 500,
+        });
+      }
+    } finally {
+      clearInterval(heartbeat);
+      closed = true;
+      if (!res.writableEnded) res.end();
+    }
+  } catch (error) {
+    if (headersSent) {
+      if (!res.writableEnded) {
+        res.write(
+          `data: ${JSON.stringify({
+            type: 'error',
+            message: error instanceof Error ? error.message : '请求失败',
+          })}\n\n`,
+        );
+        res.end();
+      }
       return;
     }
     next(error);

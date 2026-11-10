@@ -17,6 +17,7 @@ import {
   Folder as FolderIcon,
   FolderInput,
   FolderPlus,
+  Globe2,
   History,
   Inbox,
   Loader2,
@@ -60,6 +61,7 @@ interface LibraryModalProps {
   onMovePapers: (papers: StoredPaper[], folderId: string | null) => Promise<boolean>;
   onOpenBatchImport: () => void;
   onOpenImportHistory: () => void;
+  onOpenSearch: () => void;
 }
 
 type Filter = 'all' | 'arxiv' | 'local' | 'web' | 'favorite';
@@ -164,6 +166,7 @@ export function LibraryModal({
   onMovePapers,
   onOpenBatchImport,
   onOpenImportHistory,
+  onOpenSearch,
 }: LibraryModalProps) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -191,7 +194,7 @@ export function LibraryModal({
       if (event.key !== 'Escape') return;
       if (
         document.querySelector(
-          '.batch-backdrop, .import-history-backdrop, .modal-backdrop',
+          '.batch-backdrop, .import-history-backdrop, .modal-backdrop, .search-screen',
         )
       ) {
         return;
@@ -692,6 +695,15 @@ export function LibraryModal({
           <Logo compact />
         </button>
         <span className="library-breadcrumb">我的文库</span>
+        <button
+          type="button"
+          className="library-import-button library-search-agent-button"
+          onClick={onOpenSearch}
+          title="通过对话联网搜索文献"
+        >
+          <Globe2 size={14} />
+          搜文献
+        </button>
         <button
           type="button"
           className="library-import-button"

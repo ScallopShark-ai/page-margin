@@ -244,6 +244,89 @@ export async function streamPaperChat({
   }
 }
 
+export interface LiteratureSearchStreamEvent {
+  type: 'meta' | 'delta' | 'done' | 'error' | 'aborted';
+  text?: string;
+  message?: string;
+  status?: number;
+  meta?: {
+    provider?: string;
+    model?: string;
+    webSearch?: boolean;
+    searchMode?: 'web' | 'openalex';
+  };
+}
+
+export async function streamLiteratureSearch({
+  messages,
+  config,
+  signal,
+  onEvent,
+}: {
+  messages: Pick<ChatMessage, 'role' | 'content'>[];
+  config: ModelConfig;
+  signal?: AbortSignal;
+  onEvent: (event: LiteratureSearchStreamEvent) => void;
+}): Promise<void> {
+  const response = await fetch('/api/search', {
+    method: 'POST',
+    signal,
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    },
+    body: JSON.stringify({
+      messages,
+      config: {
+        provider: config.provider,
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+        model: config.model,
+      },
+    }),
+  });
+
+  if (!response.ok) throw await errorFromResponse(response);
+  if (!response.body) throw new Error('浏览器无法读取搜索响应流');
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const handleBlock = (block: string) => {
+    const dataLines = block
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).replace(/^ /, ''));
+    if (dataLines.length === 0) return;
+    const raw = dataLines.join('\n');
+    if (!raw.trim()) return;
+    try {
+      onEvent(JSON.parse(raw) as LiteratureSearchStreamEvent);
+    } catch {
+      // Ignore malformed keep-alive payloads.
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary !== -1) {
+        const block = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        if (block.trim()) handleBlock(block);
+        boundary = buffer.indexOf('\n\n');
+      }
+    }
+    if (buffer.trim()) handleBlock(buffer);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export interface TranslationStreamEvent {
   type: 'meta' | 'delta' | 'done' | 'error';
   text?: string;

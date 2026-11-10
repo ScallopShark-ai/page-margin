@@ -5,6 +5,7 @@ import {
   BookOpen,
   Clock,
   FileText,
+  Globe2,
   Layers3,
   Library,
   Link2,
@@ -29,6 +30,7 @@ interface LandingProps {
   onFile: (file: File) => void;
   onOpenBatchImport: () => void;
   onOpenLibrary: () => void;
+  onOpenSearch: () => void;
   onOpenPaper: (paper: StoredPaper) => void;
   onOpenSettings: () => void;
   onDismissError: () => void;
@@ -51,6 +53,7 @@ export function Landing({
   onFile,
   onOpenBatchImport,
   onOpenLibrary,
+  onOpenSearch,
   onOpenPaper,
   onOpenSettings,
   onDismissError,
@@ -102,6 +105,14 @@ export function Landing({
             <Library size={14} strokeWidth={1.7} />
             <span>我的文库</span>
             {activePaperCount > 0 && <em>{activePaperCount}</em>}
+          </button>
+          <button
+            className="library-nav-button search-nav-button"
+            type="button"
+            onClick={onOpenSearch}
+          >
+            <Globe2 size={14} strokeWidth={1.7} />
+            <span>搜文献</span>
           </button>
           <button className="model-pill" type="button" onClick={onOpenSettings}>
             <span className={`status-dot ${modelReady ? 'is-ready' : ''}`} />
