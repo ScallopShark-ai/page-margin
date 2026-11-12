@@ -5782,25 +5782,42 @@ body.is-resizing * {
   color: var(--accent-dark);
 }
 
-.folder-expand-button {
+.folder-tree-toggle {
   position: absolute;
   top: 50%;
-  z-index: 3;
-  display: grid;
-  width: 18px;
-  height: 24px;
-  place-items: center;
+  right: 3px;
+  z-index: 4;
+  width: 14px;
+  height: 14px;
   padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--muted);
+  border: 1.5px solid #9a9388;
+  border-radius: 50%;
+  background: #9a9388;
   transform: translateY(-50%);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
 }
 
-.folder-expand-button:hover {
-  background: rgba(32, 30, 25, 0.07);
-  color: var(--ink-soft);
+.folder-tree-toggle:hover {
+  border-color: var(--accent);
+  transform: translateY(-50%) scale(1.12);
+}
+
+.folder-tree-toggle.is-expanded {
+  background: var(--surface-raised);
+  border-color: #8f8779;
+}
+
+.folder-tree-toggle.is-expanded:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.folder-tree-toggle:focus-visible {
+  outline: 2px solid rgba(220, 89, 55, 0.35);
+  outline-offset: 2px;
 }
 
 .folder-list {
@@ -5917,6 +5934,14 @@ body.is-resizing * {
   padding-right: 64px;
 }
 
+.folder-row-wrap.has-children .folder-row {
+  padding-right: 88px;
+}
+
+.folder-row-wrap.has-children .folder-row-actions {
+  right: 24px;
+}
+
 .folder-row-actions {
   position: absolute;
   top: 50%;
@@ -5962,7 +5987,7 @@ body.is-resizing * {
   align-items: center;
   gap: 3px;
   min-height: 33px;
-  padding: 2px 3px;
+  padding: 2px 3px 2px 8px;
 }
 
 .folder-create-form > svg {

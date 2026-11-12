@@ -13,8 +13,6 @@ import {
   ArrowUpRight,
   BookOpen,
   Check,
-  ChevronDown,
-  ChevronRight,
   Circle,
   Clock3,
   Folder as FolderIcon,
@@ -744,10 +742,9 @@ export function LibraryModal({
     }
   };
 
-  const renderCreateFolderForm = (depth: number, parentId: string | null) => (
+  const renderCreateFolderForm = (parentId: string | null) => (
     <form
       className="folder-create-form"
-      style={{ marginLeft: `${depth * 14}px` }}
       onSubmit={(event) => void submitCreateFolder(event)}
     >
       <FolderPlus size={13} />
@@ -779,7 +776,7 @@ export function LibraryModal({
     </form>
   );
 
-  const renderFolder = (folder: Folder, depth: number): ReactNode => {
+  const renderFolder = (folder: Folder): ReactNode => {
     const active = selectedFolder === folder.id;
     const editing = editingFolderId === folder.id;
     const children = folderChildren.get(folder.id) ?? [];
@@ -791,7 +788,6 @@ export function LibraryModal({
         {editing ? (
           <form
             className="folder-edit-form"
-            style={{ marginLeft: `${depth * 14}px` }}
             onSubmit={(event) => {
               event.preventDefault();
               void submitRenameFolder(folder);
@@ -836,34 +832,16 @@ export function LibraryModal({
           <div
             className={`folder-row-wrap ${active ? 'is-active' : ''} ${
               isDropTarget ? 'is-drop-target' : ''
-            } ${draggingFolderId === folder.id ? 'is-dragging' : ''}`}
+            } ${draggingFolderId === folder.id ? 'is-dragging' : ''} ${
+              hasChildren ? 'has-children' : ''
+            }`}
             onDragOver={(event) => handleDragOverTarget(event, folder.id)}
             onDragLeave={(event) => handleDragLeaveTarget(event, folder.id)}
             onDrop={(event) => void handleDropTarget(event, folder.id)}
           >
-            {hasChildren && (
-              <button
-                type="button"
-                className="folder-expand-button"
-                style={{ left: `${3 + depth * 14}px` }}
-                onClick={() => toggleFolder(folder.id)}
-                aria-label={expanded ? '折叠子文件夹' : '展开子文件夹'}
-                aria-expanded={expanded}
-                title={expanded ? '折叠子文件夹' : '展开子文件夹'}
-              >
-                {expanded ? (
-                  <ChevronDown size={12} />
-                ) : (
-                  <ChevronRight size={12} />
-                )}
-              </button>
-            )}
             <button
               type="button"
               className={`folder-row ${active ? 'is-active' : ''}`}
-              style={{
-                paddingLeft: `${(hasChildren ? 23 : 8) + depth * 14}px`,
-              }}
               onClick={() => setSelectedFolder(folder.id)}
               title={`${folderPathLabel(folders, folder.id)} · 可拖动到另一个文件夹`}
               draggable
@@ -903,15 +881,27 @@ export function LibraryModal({
                 <Trash2 size={12} />
               </button>
             </div>
+            {hasChildren && (
+              <button
+                type="button"
+                className={`folder-tree-toggle ${
+                  expanded ? 'is-expanded' : ''
+                }`}
+                onClick={() => toggleFolder(folder.id)}
+                aria-label={expanded ? '折叠子文件夹' : '展开子文件夹'}
+                aria-expanded={expanded}
+                title={expanded ? '折叠子文件夹' : '展开子文件夹'}
+              />
+            )}
           </div>
         )}
         {hasChildren &&
           expanded &&
-          children.map((child) => renderFolder(child, depth + 1))}
+          children.map((child) => renderFolder(child))}
         {creatingFolder &&
           newFolderParentId === folder.id &&
           (!hasChildren || expanded) &&
-          renderCreateFolderForm(depth + 1, folder.id)}
+          renderCreateFolderForm(folder.id)}
       </div>
     );
   };
@@ -1071,12 +1061,12 @@ export function LibraryModal({
                 {folders.length > 0 && <div className="folder-divider" />}
 
                 {(folderChildren.get(null) ?? []).map((folder) =>
-                  renderFolder(folder, 0),
+                  renderFolder(folder),
                 )}
 
                 {creatingFolder &&
                   newFolderParentId === null &&
-                  renderCreateFolderForm(0, null)}
+                  renderCreateFolderForm(null)}
 
               </div>
 
