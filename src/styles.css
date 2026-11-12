@@ -5787,37 +5787,48 @@ body.is-resizing * {
   top: 50%;
   right: 3px;
   z-index: 4;
-  width: 14px;
-  height: 14px;
+  display: grid;
+  width: 18px;
+  height: 24px;
+  place-items: center;
   padding: 0;
-  border: 1.5px solid #9a9388;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  transform: translateY(-50%);
+}
+
+.folder-tree-toggle::before {
+  width: 6px;
+  height: 6px;
+  border: 1px solid #9a9388;
   border-radius: 50%;
   background: #9a9388;
-  transform: translateY(-50%);
+  content: '';
   transition:
     background 0.15s ease,
     border-color 0.15s ease,
     transform 0.15s ease;
 }
 
-.folder-tree-toggle:hover {
+.folder-tree-toggle:hover::before {
   border-color: var(--accent);
-  transform: translateY(-50%) scale(1.12);
+  transform: scale(1.15);
 }
 
-.folder-tree-toggle.is-expanded {
+.folder-tree-toggle.is-expanded::before {
   background: var(--surface-raised);
   border-color: #8f8779;
 }
 
-.folder-tree-toggle.is-expanded:hover {
+.folder-tree-toggle.is-expanded:hover::before {
   background: var(--accent-soft);
   border-color: var(--accent);
 }
 
 .folder-tree-toggle:focus-visible {
   outline: 2px solid rgba(220, 89, 55, 0.35);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
 .folder-list {
