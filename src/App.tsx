@@ -100,6 +100,7 @@ import {
   listThreads,
   messagesForStorage,
   moveFolder as moveStoredFolder,
+  moveFolders as moveStoredFolders,
   movePapersToFolder,
   renameFolder as renameStoredFolder,
   savePaper,
@@ -1814,6 +1815,35 @@ export default function App() {
     }
   };
 
+  const handleMoveFolders = async (
+    foldersToMove: Folder[],
+    parentId: string | null,
+  ): Promise<boolean> => {
+    try {
+      const updated = await moveStoredFolders(
+        foldersToMove.map((folder) => folder.id),
+        parentId,
+      );
+      if (updated.length === 0) return false;
+      const updatedById = new Map(updated.map((folder) => [folder.id, folder]));
+      setFolders((current) =>
+        current.map((item) => updatedById.get(item.id) ?? item),
+      );
+      const destination = parentId
+        ? folderPathLabel(folders, parentId) || '目标文件夹'
+        : '根目录';
+      setToast(
+        `已将 ${updated.length} 个文件夹移动到「${destination}」`,
+      );
+      return true;
+    } catch (error) {
+      setToast(
+        error instanceof Error ? error.message : '移动文件夹失败，请稍后重试',
+      );
+      return false;
+    }
+  };
+
   const handleDeleteFolder = async (folder: Folder): Promise<boolean> => {
     const parentId = folder.parentId ?? null;
     const childCount = folders.filter(
@@ -2577,6 +2607,7 @@ export default function App() {
       onRenameFolder={handleRenameFolder}
       onDeleteFolder={handleDeleteFolder}
       onMoveFolder={handleMoveFolder}
+      onMoveFolders={handleMoveFolders}
       onMovePapers={handleMovePapers}
       onOpenBatchImport={() => openBatchImport()}
       onOpenImportHistory={() => setImportHistoryOpen(true)}

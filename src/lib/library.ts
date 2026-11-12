@@ -355,6 +355,86 @@ export async function moveFolder(
   return updated;
 }
 
+export async function moveFolders(
+  ids: string[],
+  parentId: string | null,
+): Promise<Folder[]> {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  if (uniqueIds.length === 0) return [];
+  const folders = await listFolders();
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  const selected = uniqueIds
+    .map((id) => byId.get(id))
+    .filter((folder): folder is Folder => Boolean(folder));
+  if (selected.length !== uniqueIds.length) {
+    throw new Error('有文件夹不存在，请刷新后重试');
+  }
+
+  const nextParentId = parentId ?? null;
+  if (nextParentId && !byId.has(nextParentId)) {
+    throw new Error('目标文件夹不存在');
+  }
+
+  const isUnder = (candidateId: string, ancestorId: string): boolean => {
+    const seen = new Set<string>();
+    let current = byId.get(candidateId)?.parentId ?? null;
+    while (current && !seen.has(current)) {
+      if (current === ancestorId) return true;
+      seen.add(current);
+      current = byId.get(current)?.parentId ?? null;
+    }
+    return false;
+  };
+
+  if (nextParentId) {
+    for (const folder of selected) {
+      if (nextParentId === folder.id || isUnder(nextParentId, folder.id)) {
+        throw new Error('不能把文件夹移动到它自己的子文件夹里');
+      }
+    }
+  }
+
+  const selectedSet = new Set(uniqueIds);
+  const roots = selected.filter((folder) => {
+    const seen = new Set<string>();
+    let current = folder.parentId ?? null;
+    while (current && !seen.has(current)) {
+      if (selectedSet.has(current)) return false;
+      seen.add(current);
+      current = byId.get(current)?.parentId ?? null;
+    }
+    return true;
+  });
+  const rootIds = new Set(roots.map((folder) => folder.id));
+  const seenNames = new Set<string>();
+  for (const folder of roots) {
+    const key = folder.name.toLowerCase();
+    if (seenNames.has(key)) {
+      throw new Error('选中的文件夹里有同名的，不能移动到同一级');
+    }
+    seenNames.add(key);
+    const conflict = folders.some(
+      (item) =>
+        !rootIds.has(item.id) &&
+        (item.parentId ?? null) === nextParentId &&
+        item.name.toLowerCase() === key,
+    );
+    if (conflict) throw new Error('目标文件夹下已经有同名文件夹');
+  }
+
+  const now = Date.now();
+  const updated = roots.map((folder) => ({
+    ...folder,
+    parentId: nextParentId,
+    updatedAt: now,
+  }));
+  const db = await openDatabase();
+  const transaction = db.transaction(FOLDERS, 'readwrite');
+  for (const folder of updated) transaction.objectStore(FOLDERS).put(folder);
+  await transactionDone(transaction);
+  return updated;
+}
+
 export async function deleteFolder(id: string): Promise<void> {
   const db = await openDatabase();
   const transaction = db.transaction([FOLDERS, PAPERS], 'readwrite');

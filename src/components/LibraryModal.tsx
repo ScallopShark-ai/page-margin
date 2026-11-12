@@ -60,6 +60,10 @@ interface LibraryModalProps {
   onRenameFolder: (folder: Folder, name: string) => Promise<boolean>;
   onDeleteFolder: (folder: Folder) => Promise<boolean>;
   onMoveFolder: (folder: Folder, parentId: string | null) => Promise<boolean>;
+  onMoveFolders: (
+    folders: Folder[],
+    parentId: string | null,
+  ) => Promise<boolean>;
   onMovePapers: (papers: StoredPaper[], folderId: string | null) => Promise<boolean>;
   onOpenBatchImport: () => void;
   onOpenImportHistory: () => void;
@@ -171,6 +175,7 @@ export function LibraryModal({
   onRenameFolder,
   onDeleteFolder,
   onMoveFolder,
+  onMoveFolders,
   onMovePapers,
   onOpenBatchImport,
   onOpenImportHistory,
@@ -188,11 +193,15 @@ export function LibraryModal({
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
+  const [draggingFolderIds, setDraggingFolderIds] = useState<string[]>([]);
   const [draggingPaperIds, setDraggingPaperIds] = useState<string[]>([]);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [movingByDrop, setMovingByDrop] = useState(false);
+  const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const selectionAnchorRef = useRef<string | null>(null);
+  const folderSelectionAnchorRef = useRef<string | null>(null);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [folderDraft, setFolderDraft] = useState('');
   const [folderSaving, setFolderSaving] = useState(false);
@@ -271,6 +280,18 @@ export function LibraryModal({
   }, [folders, selectedFolder]);
 
   useEffect(() => {
+    if (!open) return;
+    setSelectedFolderIds((current) => {
+      if (current.size === 0) return current;
+      const existing = new Set(folders.map((folder) => folder.id));
+      const next = new Set(
+        [...current].filter((folderId) => existing.has(folderId)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [open, folders]);
+
+  useEffect(() => {
     if (!open) {
       setSelectionMode(false);
       setSelectedIds(new Set());
@@ -279,10 +300,12 @@ export function LibraryModal({
       setNewFolderName('');
       setNewFolderParentId(null);
       setExpandedFolderIds(new Set());
-      setDraggingFolderId(null);
+      setDraggingFolderIds([]);
       setDraggingPaperIds([]);
       setDropTargetId(null);
       setMovingByDrop(false);
+      setSelectedFolderIds(new Set());
+      folderSelectionAnchorRef.current = null;
     }
   }, [open]);
 
@@ -417,6 +440,55 @@ export function LibraryModal({
     setExpandedFolderIds(
       allFoldersExpanded ? new Set() : new Set(expandableFolderIds),
     );
+  };
+
+  const visibleFolderRows: Folder[] = [];
+  const collectVisibleFolders = (parentId: string | null) => {
+    for (const folder of folderChildren.get(parentId) ?? []) {
+      visibleFolderRows.push(folder);
+      if (expandedFolderIds.has(folder.id)) {
+        collectVisibleFolders(folder.id);
+      }
+    }
+  };
+  collectVisibleFolders(null);
+
+  const clearFolderSelection = () => {
+    folderSelectionAnchorRef.current = null;
+    setSelectedFolderIds(new Set());
+  };
+
+  const handleFolderRowClick = (folder: Folder, shiftKey: boolean) => {
+    if (!shiftKey) {
+      setSelectedFolderIds(new Set());
+      folderSelectionAnchorRef.current = null;
+      setSelectedFolder(folder.id);
+      return;
+    }
+    const index = visibleFolderRows.findIndex((item) => item.id === folder.id);
+    if (index < 0) return;
+    if (!selectedFolderIds.size) {
+      folderSelectionAnchorRef.current = folder.id;
+      setSelectedFolderIds(new Set([folder.id]));
+      setSelectedFolder(folder.id);
+      return;
+    }
+    const anchorId = folderSelectionAnchorRef.current;
+    const anchorIndex = anchorId
+      ? visibleFolderRows.findIndex((item) => item.id === anchorId)
+      : -1;
+    if (anchorIndex < 0) {
+      folderSelectionAnchorRef.current = folder.id;
+      setSelectedFolderIds(new Set([folder.id]));
+      setSelectedFolder(folder.id);
+      return;
+    }
+    const start = Math.min(anchorIndex, index);
+    const end = Math.max(anchorIndex, index);
+    setSelectedFolderIds(
+      new Set(visibleFolderRows.slice(start, end + 1).map((item) => item.id)),
+    );
+    setSelectedFolder(folder.id);
   };
 
   const activePapers = papers.filter(
@@ -660,7 +732,7 @@ export function LibraryModal({
   };
 
   const clearDragState = () => {
-    setDraggingFolderId(null);
+    setDraggingFolderIds([]);
     setDraggingPaperIds([]);
     setDropTargetId(null);
   };
@@ -685,10 +757,17 @@ export function LibraryModal({
     event: ReactDragEvent<HTMLElement>,
     folder: Folder,
   ) => {
+    const ids = selectedFolderIds.has(folder.id)
+      ? [...selectedFolderIds]
+      : [folder.id];
+    if (!selectedFolderIds.has(folder.id)) {
+      setSelectedFolderIds(new Set());
+      folderSelectionAnchorRef.current = null;
+    }
     event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData(FOLDER_DRAG_TYPE, folder.id);
+    event.dataTransfer.setData(FOLDER_DRAG_TYPE, JSON.stringify(ids));
     event.dataTransfer.setData('text/plain', folder.name);
-    setDraggingFolderId(folder.id);
+    setDraggingFolderIds(ids);
     setDraggingPaperIds([]);
     setDropTargetId(null);
   };
@@ -705,7 +784,7 @@ export function LibraryModal({
     event.dataTransfer.setData(PAPERS_DRAG_TYPE, JSON.stringify(ids));
     event.dataTransfer.setData('text/plain', paper.title);
     setDraggingPaperIds(ids);
-    setDraggingFolderId(null);
+    setDraggingFolderIds([]);
     setDropTargetId(null);
   };
 
@@ -713,8 +792,12 @@ export function LibraryModal({
     event: ReactDragEvent<HTMLElement>,
     targetId: string,
   ) => {
-    if (draggingFolderId) {
-      if (!canDropFolderInto(draggingFolderId, targetId)) return;
+    if (draggingFolderIds.length > 0) {
+      if (
+        !draggingFolderIds.every((id) => canDropFolderInto(id, targetId))
+      ) {
+        return;
+      }
     } else if (draggingPaperIds.length === 0) {
       return;
     } else if (targetId === ROOT_DROP_TARGET) {
@@ -744,10 +827,24 @@ export function LibraryModal({
     if (movingByDrop) return;
 
     const parentId = dropParentId(targetId);
-    const sourceFolderId =
-      draggingFolderId ||
-      event.dataTransfer.getData(FOLDER_DRAG_TYPE) ||
-      '';
+    let folderIds = draggingFolderIds;
+    if (folderIds.length === 0) {
+      const raw = event.dataTransfer.getData(FOLDER_DRAG_TYPE);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            folderIds = parsed.filter(
+              (id): id is string => typeof id === 'string',
+            );
+          } else if (typeof parsed === 'string') {
+            folderIds = [parsed];
+          }
+        } catch {
+          folderIds = raw ? [raw] : [];
+        }
+      }
+    }
     let paperIds = draggingPaperIds;
     if (paperIds.length === 0) {
       try {
@@ -763,12 +860,26 @@ export function LibraryModal({
     }
 
     clearDragState();
-    if (sourceFolderId) {
-      const source = folders.find((folder) => folder.id === sourceFolderId);
-      if (!source || !canDropFolderInto(source.id, targetId)) return;
+    if (folderIds.length > 0) {
+      const sources = folders.filter((folder) =>
+        folderIds.includes(folder.id),
+      );
+      if (
+        sources.length === 0 ||
+        !sources.every((folder) => canDropFolderInto(folder.id, targetId))
+      ) {
+        return;
+      }
       setMovingByDrop(true);
       try {
-        const moved = await onMoveFolder(source, parentId);
+        const moved =
+          sources.length > 1
+            ? await onMoveFolders(sources, parentId)
+            : await onMoveFolder(sources[0], parentId);
+        if (moved) {
+          setSelectedFolderIds(new Set());
+          folderSelectionAnchorRef.current = null;
+        }
         if (moved && parentId) {
           setExpandedFolderIds((current) => {
             const next = new Set(current);
@@ -888,18 +999,24 @@ export function LibraryModal({
           <div
             className={`folder-row-wrap ${active ? 'is-active' : ''} ${
               isDropTarget ? 'is-drop-target' : ''
-            } ${draggingFolderId === folder.id ? 'is-dragging' : ''} ${
-              hasChildren ? 'has-children' : ''
-            }`}
+            } ${
+              draggingFolderIds.includes(folder.id) ? 'is-dragging' : ''
+            } ${
+              selectedFolderIds.has(folder.id) ? 'is-batch-selected' : ''
+            } ${hasChildren ? 'has-children' : ''}`}
             onDragOver={(event) => handleDragOverTarget(event, folder.id)}
             onDragLeave={(event) => handleDragLeaveTarget(event, folder.id)}
             onDrop={(event) => void handleDropTarget(event, folder.id)}
           >
             <button
               type="button"
-              className={`folder-row ${active ? 'is-active' : ''}`}
+              className={`folder-row ${active ? 'is-active' : ''} ${
+                selectedFolderIds.has(folder.id) ? 'is-batch-selected' : ''
+              }`}
               style={{ paddingLeft: `${8 + depth * 14}px` }}
-              onClick={() => setSelectedFolder(folder.id)}
+              onClick={(event) =>
+                handleFolderRowClick(folder, event.shiftKey)
+              }
               title={`${folderPathLabel(folders, folder.id)} · 可拖动到另一个文件夹`}
               draggable
               onDragStart={(event) => startFolderDrag(event, folder)}
@@ -1126,6 +1243,18 @@ export function LibraryModal({
                   renderCreateFolderForm(0, null)}
 
               </div>
+
+              {selectedFolderIds.size > 0 && (
+                <div className="folder-batch-bar" role="status">
+                  <div>
+                    <strong>已选 {selectedFolderIds.size} 个文件夹</strong>
+                    <span>按住 Shift 连续选择；拖动任意选中项到目标文件夹批量移动</span>
+                  </div>
+                  <button type="button" onClick={clearFolderSelection}>
+                    清空
+                  </button>
+                </div>
+              )}
 
               <button
                 type="button"
