@@ -99,6 +99,7 @@ import {
   listPapers,
   listThreads,
   messagesForStorage,
+  moveFolder as moveStoredFolder,
   movePapersToFolder,
   renameFolder as renameStoredFolder,
   savePaper,
@@ -1791,6 +1792,28 @@ export default function App() {
     }
   };
 
+  const handleMoveFolder = async (
+    folder: Folder,
+    parentId: string | null,
+  ): Promise<boolean> => {
+    try {
+      const updated = await moveStoredFolder(folder.id, parentId);
+      setFolders((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      const destination = parentId
+        ? folderPathLabel(folders, parentId) || '目标文件夹'
+        : '根目录';
+      setToast(`文件夹「${folder.name}」已移动到「${destination}」`);
+      return true;
+    } catch (error) {
+      setToast(
+        error instanceof Error ? error.message : '移动文件夹失败，请稍后重试',
+      );
+      return false;
+    }
+  };
+
   const handleDeleteFolder = async (folder: Folder): Promise<boolean> => {
     const parentId = folder.parentId ?? null;
     const childCount = folders.filter(
@@ -2553,6 +2576,7 @@ export default function App() {
       onCreateFolder={handleCreateFolder}
       onRenameFolder={handleRenameFolder}
       onDeleteFolder={handleDeleteFolder}
+      onMoveFolder={handleMoveFolder}
       onMovePapers={handleMovePapers}
       onOpenBatchImport={() => openBatchImport()}
       onOpenImportHistory={() => setImportHistoryOpen(true)}

@@ -3,6 +3,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent as ReactDragEvent,
   type FormEvent,
   type ReactNode,
 } from 'react';
@@ -12,6 +13,8 @@ import {
   ArrowUpRight,
   BookOpen,
   Check,
+  ChevronDown,
+  ChevronRight,
   Circle,
   Clock3,
   Folder as FolderIcon,
@@ -58,6 +61,7 @@ interface LibraryModalProps {
   ) => Promise<Folder | null>;
   onRenameFolder: (folder: Folder, name: string) => Promise<boolean>;
   onDeleteFolder: (folder: Folder) => Promise<boolean>;
+  onMoveFolder: (folder: Folder, parentId: string | null) => Promise<boolean>;
   onMovePapers: (papers: StoredPaper[], folderId: string | null) => Promise<boolean>;
   onOpenBatchImport: () => void;
   onOpenImportHistory: () => void;
@@ -95,6 +99,11 @@ const PAPER_STATUS_LABELS: Record<PaperStatus, string> = {
   read: '已读',
   archived: '归档',
 };
+
+const FOLDER_DRAG_TYPE = 'application/x-haila-folder';
+const PAPERS_DRAG_TYPE = 'application/x-haila-papers';
+const ROOT_DROP_TARGET = '__root__';
+const UNFILED_DROP_TARGET = '__unfiled__';
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: '全部' },
@@ -163,6 +172,7 @@ export function LibraryModal({
   onCreateFolder,
   onRenameFolder,
   onDeleteFolder,
+  onMoveFolder,
   onMovePapers,
   onOpenBatchImport,
   onOpenImportHistory,
@@ -177,6 +187,13 @@ export function LibraryModal({
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderParentId, setNewFolderParentId] = useState<string | null>(null);
+  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
+  const [draggingPaperIds, setDraggingPaperIds] = useState<string[]>([]);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [movingByDrop, setMovingByDrop] = useState(false);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [folderDraft, setFolderDraft] = useState('');
   const [folderSaving, setFolderSaving] = useState(false);
@@ -262,6 +279,11 @@ export function LibraryModal({
       setCreatingFolder(false);
       setNewFolderName('');
       setNewFolderParentId(null);
+      setExpandedFolderIds(new Set());
+      setDraggingFolderId(null);
+      setDraggingPaperIds([]);
+      setDropTargetId(null);
+      setMovingByDrop(false);
     }
   }, [open]);
 
@@ -373,6 +395,30 @@ export function LibraryModal({
   const allVisibleSelected =
     filtered.length > 0 && filtered.every((paper) => selectedIds.has(paper.id));
 
+  const folderHasChildren = (folderId: string) =>
+    (folderChildren.get(folderId)?.length ?? 0) > 0;
+  const expandableFolderIds = folders
+    .filter((folder) => folderHasChildren(folder.id))
+    .map((folder) => folder.id);
+  const allFoldersExpanded =
+    expandableFolderIds.length > 0 &&
+    expandableFolderIds.every((id) => expandedFolderIds.has(id));
+
+  const toggleFolder = (folderId: string) => {
+    setExpandedFolderIds((current) => {
+      const next = new Set(current);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  };
+
+  const toggleAllFolders = () => {
+    setExpandedFolderIds(
+      allFoldersExpanded ? new Set() : new Set(expandableFolderIds),
+    );
+  };
+
   const activePapers = papers.filter(
     (paper) => paper.status !== 'archived',
   );
@@ -431,6 +477,13 @@ export function LibraryModal({
     setCreatingFolder(true);
     setNewFolderName('');
     setNewFolderParentId(parentId);
+    if (parentId) {
+      setExpandedFolderIds((current) => {
+        const next = new Set(current);
+        next.add(parentId);
+        return next;
+      });
+    }
   };
 
   const cancelCreateFolder = () => {
@@ -443,9 +496,17 @@ export function LibraryModal({
     event.preventDefault();
     if (!newFolderName.trim() || folderSaving) return;
     setFolderSaving(true);
-    const folder = await onCreateFolder(newFolderName, newFolderParentId);
+    const parentId = newFolderParentId;
+    const folder = await onCreateFolder(newFolderName, parentId);
     setFolderSaving(false);
     if (!folder) return;
+    if (parentId) {
+      setExpandedFolderIds((current) => {
+        const next = new Set(current);
+        next.add(parentId);
+        return next;
+      });
+    }
     setNewFolderName('');
     setCreatingFolder(false);
     setNewFolderParentId(null);
@@ -487,8 +548,16 @@ export function LibraryModal({
       return;
     }
     const ok = await onDeleteFolder(folder);
-    if (ok && selectedFolder === folder.id) {
-      setSelectedFolder(folder.parentId ?? 'unfiled');
+    if (ok) {
+      setExpandedFolderIds((current) => {
+        if (!current.has(folder.id)) return current;
+        const next = new Set(current);
+        next.delete(folder.id);
+        return next;
+      });
+      if (selectedFolder === folder.id) {
+        setSelectedFolder(folder.parentId ?? 'unfiled');
+      }
     }
   };
 
@@ -538,6 +607,143 @@ export function LibraryModal({
     }
   };
 
+  const clearDragState = () => {
+    setDraggingFolderId(null);
+    setDraggingPaperIds([]);
+    setDropTargetId(null);
+  };
+
+  const dropParentId = (targetId: string): string | null =>
+    targetId === ROOT_DROP_TARGET || targetId === UNFILED_DROP_TARGET
+      ? null
+      : targetId;
+
+  const canDropFolderInto = (
+    folderId: string,
+    targetId: string,
+  ): boolean => {
+    if (targetId === ROOT_DROP_TARGET || targetId === UNFILED_DROP_TARGET) {
+      return true;
+    }
+    if (folderId === targetId) return false;
+    return !(folderScopes.get(folderId)?.has(targetId) ?? false);
+  };
+
+  const startFolderDrag = (
+    event: ReactDragEvent<HTMLElement>,
+    folder: Folder,
+  ) => {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(FOLDER_DRAG_TYPE, folder.id);
+    event.dataTransfer.setData('text/plain', folder.name);
+    setDraggingFolderId(folder.id);
+    setDraggingPaperIds([]);
+    setDropTargetId(null);
+  };
+
+  const startPaperDrag = (
+    event: ReactDragEvent<HTMLElement>,
+    paper: StoredPaper,
+  ) => {
+    const ids =
+      selectedIds.has(paper.id) && selectedPapers.length > 0
+        ? selectedPapers.map((item) => item.id)
+        : [paper.id];
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(PAPERS_DRAG_TYPE, JSON.stringify(ids));
+    event.dataTransfer.setData('text/plain', paper.title);
+    setDraggingPaperIds(ids);
+    setDraggingFolderId(null);
+    setDropTargetId(null);
+  };
+
+  const handleDragOverTarget = (
+    event: ReactDragEvent<HTMLElement>,
+    targetId: string,
+  ) => {
+    if (draggingFolderId) {
+      if (!canDropFolderInto(draggingFolderId, targetId)) return;
+    } else if (draggingPaperIds.length === 0) {
+      return;
+    } else if (targetId === ROOT_DROP_TARGET) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = 'move';
+    setDropTargetId(targetId);
+  };
+
+  const handleDragLeaveTarget = (
+    event: ReactDragEvent<HTMLElement>,
+    targetId: string,
+  ) => {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    setDropTargetId((current) => (current === targetId ? null : current));
+  };
+
+  const handleDropTarget = async (
+    event: ReactDragEvent<HTMLElement>,
+    targetId: string,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (movingByDrop) return;
+
+    const parentId = dropParentId(targetId);
+    const sourceFolderId =
+      draggingFolderId ||
+      event.dataTransfer.getData(FOLDER_DRAG_TYPE) ||
+      '';
+    let paperIds = draggingPaperIds;
+    if (paperIds.length === 0) {
+      try {
+        const parsed = JSON.parse(
+          event.dataTransfer.getData(PAPERS_DRAG_TYPE) || '[]',
+        );
+        if (Array.isArray(parsed)) {
+          paperIds = parsed.filter((id): id is string => typeof id === 'string');
+        }
+      } catch {
+        paperIds = [];
+      }
+    }
+
+    clearDragState();
+    if (sourceFolderId) {
+      const source = folders.find((folder) => folder.id === sourceFolderId);
+      if (!source || !canDropFolderInto(source.id, targetId)) return;
+      setMovingByDrop(true);
+      try {
+        const moved = await onMoveFolder(source, parentId);
+        if (moved && parentId) {
+          setExpandedFolderIds((current) => {
+            const next = new Set(current);
+            next.add(parentId);
+            return next;
+          });
+        }
+      } finally {
+        setMovingByDrop(false);
+      }
+      return;
+    }
+
+    if (paperIds.length > 0) {
+      if (targetId === ROOT_DROP_TARGET) return;
+      const records = papers.filter((paper) => paperIds.includes(paper.id));
+      if (records.length === 0) return;
+      setMovingByDrop(true);
+      try {
+        await onMovePapers(records, parentId);
+        setSelectedIds(new Set());
+      } finally {
+        setMovingByDrop(false);
+      }
+    }
+  };
+
   const renderCreateFolderForm = (depth: number, parentId: string | null) => (
     <form
       className="folder-create-form"
@@ -577,6 +783,9 @@ export function LibraryModal({
     const active = selectedFolder === folder.id;
     const editing = editingFolderId === folder.id;
     const children = folderChildren.get(folder.id) ?? [];
+    const hasChildren = children.length > 0;
+    const expanded = expandedFolderIds.has(folder.id);
+    const isDropTarget = dropTargetId === folder.id;
     return (
       <div className="folder-node" key={folder.id}>
         {editing ? (
@@ -625,14 +834,41 @@ export function LibraryModal({
           </form>
         ) : (
           <div
-            className={`folder-row-wrap ${active ? 'is-active' : ''}`}
+            className={`folder-row-wrap ${active ? 'is-active' : ''} ${
+              isDropTarget ? 'is-drop-target' : ''
+            } ${draggingFolderId === folder.id ? 'is-dragging' : ''}`}
+            onDragOver={(event) => handleDragOverTarget(event, folder.id)}
+            onDragLeave={(event) => handleDragLeaveTarget(event, folder.id)}
+            onDrop={(event) => void handleDropTarget(event, folder.id)}
           >
+            {hasChildren && (
+              <button
+                type="button"
+                className="folder-expand-button"
+                style={{ left: `${3 + depth * 14}px` }}
+                onClick={() => toggleFolder(folder.id)}
+                aria-label={expanded ? '折叠子文件夹' : '展开子文件夹'}
+                aria-expanded={expanded}
+                title={expanded ? '折叠子文件夹' : '展开子文件夹'}
+              >
+                {expanded ? (
+                  <ChevronDown size={12} />
+                ) : (
+                  <ChevronRight size={12} />
+                )}
+              </button>
+            )}
             <button
               type="button"
               className={`folder-row ${active ? 'is-active' : ''}`}
-              style={{ paddingLeft: `${8 + depth * 14}px` }}
+              style={{
+                paddingLeft: `${(hasChildren ? 23 : 8) + depth * 14}px`,
+              }}
               onClick={() => setSelectedFolder(folder.id)}
-              title={folderPathLabel(folders, folder.id)}
+              title={`${folderPathLabel(folders, folder.id)} · 可拖动到另一个文件夹`}
+              draggable
+              onDragStart={(event) => startFolderDrag(event, folder)}
+              onDragEnd={clearDragState}
             >
               <span
                 className="folder-dot"
@@ -669,9 +905,12 @@ export function LibraryModal({
             </div>
           </div>
         )}
-        {children.map((child) => renderFolder(child, depth + 1))}
+        {hasChildren &&
+          expanded &&
+          children.map((child) => renderFolder(child, depth + 1))}
         {creatingFolder &&
           newFolderParentId === folder.id &&
+          (!hasChildren || expanded) &&
           renderCreateFolderForm(depth + 1, folder.id)}
       </div>
     );
@@ -773,13 +1012,34 @@ export function LibraryModal({
             <aside className="folder-panel" aria-label="论文文件夹">
               <div className="folder-panel-head">
                 <span>文件夹</span>
+                {expandableFolderIds.length > 0 && (
+                  <button
+                    type="button"
+                    className="folder-expand-all"
+                    onClick={toggleAllFolders}
+                    title={allFoldersExpanded ? '折叠所有子文件夹' : '展开所有子文件夹'}
+                  >
+                    {allFoldersExpanded ? '折叠全部' : '展开全部'}
+                  </button>
+                )}
                 <em>{folders.length}</em>
               </div>
               <div className="folder-list">
                 <button
                   type="button"
-                  className={`folder-row ${selectedFolder === 'all' ? 'is-active' : ''}`}
+                  className={`folder-row ${
+                    selectedFolder === 'all' ? 'is-active' : ''
+                  } ${dropTargetId === ROOT_DROP_TARGET ? 'is-drop-target' : ''}`}
                   onClick={() => setSelectedFolder('all')}
+                  onDragOver={(event) =>
+                    handleDragOverTarget(event, ROOT_DROP_TARGET)
+                  }
+                  onDragLeave={(event) =>
+                    handleDragLeaveTarget(event, ROOT_DROP_TARGET)
+                  }
+                  onDrop={(event) =>
+                    void handleDropTarget(event, ROOT_DROP_TARGET)
+                  }
                 >
                   <BookOpen size={13} />
                   <span className="folder-row-name">全部文献</span>
@@ -789,8 +1049,19 @@ export function LibraryModal({
                   type="button"
                   className={`folder-row ${
                     selectedFolder === 'unfiled' ? 'is-active' : ''
+                  } ${
+                    dropTargetId === UNFILED_DROP_TARGET ? 'is-drop-target' : ''
                   }`}
                   onClick={() => setSelectedFolder('unfiled')}
+                  onDragOver={(event) =>
+                    handleDragOverTarget(event, UNFILED_DROP_TARGET)
+                  }
+                  onDragLeave={(event) =>
+                    handleDragLeaveTarget(event, UNFILED_DROP_TARGET)
+                  }
+                  onDrop={(event) =>
+                    void handleDropTarget(event, UNFILED_DROP_TARGET)
+                  }
                 >
                   <Inbox size={13} />
                   <span className="folder-row-name">未分类</span>
@@ -817,7 +1088,9 @@ export function LibraryModal({
                 <FolderPlus size={13} />
                 新建文件夹
               </button>
-              <p className="folder-note">支持多级子文件夹；删除文件夹不会删除论文</p>
+              <p className="folder-note">
+                子文件夹默认折叠；文件夹和论文都可以拖动到目标文件夹
+              </p>
             </aside>
 
             <div className="library-content">
@@ -1045,7 +1318,13 @@ export function LibraryModal({
                         isBusy ? 'is-busy' : ''
                       } ${selectionMode ? 'is-selecting' : ''} ${
                         isSelected ? 'is-selected' : ''
+                      } ${
+                        draggingPaperIds.includes(paper.id) ? 'is-dragging' : ''
                       }`}
+                      draggable
+                      onDragStart={(event) => startPaperDrag(event, paper)}
+                      onDragEnd={clearDragState}
+                      title="拖动到文件夹即可移动到该位置"
                       onClick={() => {
                         if (isBusy) return;
                         if (selectionMode) {

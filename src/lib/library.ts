@@ -303,6 +303,58 @@ export async function renameFolder(id: string, name: string): Promise<Folder> {
   return updated;
 }
 
+export async function moveFolder(
+  id: string,
+  parentId: string | null,
+): Promise<Folder> {
+  const folders = await listFolders();
+  const folder = folders.find((item) => item.id === id);
+  if (!folder) throw new Error('文件夹不存在');
+  const nextParentId = parentId ?? null;
+  if (nextParentId === id) throw new Error('不能把文件夹移动到自身');
+  const parent = nextParentId
+    ? folders.find((item) => item.id === nextParentId)
+    : null;
+  if (nextParentId && !parent) throw new Error('目标文件夹不存在');
+
+  let cursor = parent;
+  const seen = new Set<string>();
+  while (cursor) {
+    if (cursor.id === id) {
+      throw new Error('不能把文件夹移动到它自己的子文件夹里');
+    }
+    if (seen.has(cursor.id)) break;
+    seen.add(cursor.id);
+    const parentOfCursor = cursor.parentId;
+    cursor = parentOfCursor
+      ? folders.find((item) => item.id === parentOfCursor)
+      : undefined;
+  }
+
+  if ((folder.parentId ?? null) === nextParentId) return folder;
+  if (
+    folders.some(
+      (item) =>
+        item.id !== id &&
+        (item.parentId ?? null) === nextParentId &&
+        item.name.toLowerCase() === folder.name.toLowerCase(),
+    )
+  ) {
+    throw new Error('目标文件夹下已经有同名文件夹');
+  }
+
+  const updated: Folder = {
+    ...folder,
+    parentId: nextParentId,
+    updatedAt: Date.now(),
+  };
+  const db = await openDatabase();
+  const transaction = db.transaction(FOLDERS, 'readwrite');
+  transaction.objectStore(FOLDERS).put(updated);
+  await transactionDone(transaction);
+  return updated;
+}
+
 export async function deleteFolder(id: string): Promise<void> {
   const db = await openDatabase();
   const transaction = db.transaction([FOLDERS, PAPERS], 'readwrite');
