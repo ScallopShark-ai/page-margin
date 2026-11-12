@@ -463,6 +463,9 @@ export function LibraryModal({
       setSelectedFolderIds(new Set());
       folderSelectionAnchorRef.current = null;
       setSelectedFolder(folder.id);
+      if (folderHasChildren(folder.id)) {
+        toggleFolder(folder.id);
+      }
       return;
     }
     const index = visibleFolderRows.findIndex((item) => item.id === folder.id);
@@ -1017,7 +1020,10 @@ export function LibraryModal({
               onClick={(event) =>
                 handleFolderRowClick(folder, event.shiftKey)
               }
-              title={`${folderPathLabel(folders, folder.id)} · 可拖动到另一个文件夹`}
+              aria-expanded={hasChildren ? expanded : undefined}
+              title={`${folderPathLabel(folders, folder.id)}${
+                hasChildren ? (expanded ? ' · 点击折叠' : ' · 点击展开') : ''
+              } · 可拖动到另一个文件夹`}
               draggable
               onDragStart={(event) => startFolderDrag(event, folder)}
               onDragEnd={clearDragState}
@@ -1056,15 +1062,11 @@ export function LibraryModal({
               </button>
             </div>
             {hasChildren && (
-              <button
-                type="button"
+              <span
                 className={`folder-tree-toggle ${
                   expanded ? 'is-expanded' : ''
                 }`}
-                onClick={() => toggleFolder(folder.id)}
-                aria-label={expanded ? '折叠子文件夹' : '展开子文件夹'}
-                aria-expanded={expanded}
-                title={expanded ? '折叠子文件夹' : '展开子文件夹'}
+                aria-hidden="true"
               />
             )}
           </div>

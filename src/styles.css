@@ -5785,50 +5785,24 @@ body.is-resizing * {
 .folder-tree-toggle {
   position: absolute;
   top: 50%;
-  right: 3px;
-  z-index: 4;
-  display: grid;
-  width: 18px;
-  height: 24px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  transform: translateY(-50%);
-}
-
-.folder-tree-toggle::before {
+  right: 8px;
+  z-index: 2;
+  display: block;
   width: 4px;
   height: 4px;
   border: 1px solid #9a9388;
   border-radius: 50%;
   background: #9a9388;
-  content: '';
+  pointer-events: none;
+  transform: translateY(-50%);
   transition:
     background 0.15s ease,
-    border-color 0.15s ease,
-    transform 0.15s ease;
+    border-color 0.15s ease;
 }
 
-.folder-tree-toggle:hover::before {
-  border-color: var(--accent);
-  transform: scale(1.15);
-}
-
-.folder-tree-toggle.is-expanded::before {
+.folder-tree-toggle.is-expanded {
   background: var(--surface-raised);
   border-color: #8f8779;
-}
-
-.folder-tree-toggle.is-expanded:hover::before {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-}
-
-.folder-tree-toggle:focus-visible {
-  outline: 2px solid rgba(220, 89, 55, 0.35);
-  outline-offset: 1px;
 }
 
 .folder-list {
