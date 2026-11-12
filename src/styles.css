@@ -5799,8 +5799,8 @@ body.is-resizing * {
 }
 
 .folder-tree-toggle::before {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
   border: 1px solid #9a9388;
   border-radius: 50%;
   background: #9a9388;

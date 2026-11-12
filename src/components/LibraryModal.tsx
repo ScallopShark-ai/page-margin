@@ -192,6 +192,7 @@ export function LibraryModal({
   const [draggingPaperIds, setDraggingPaperIds] = useState<string[]>([]);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [movingByDrop, setMovingByDrop] = useState(false);
+  const selectionAnchorRef = useRef<string | null>(null);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [folderDraft, setFolderDraft] = useState('');
   const [folderSaving, setFolderSaving] = useState(false);
@@ -286,6 +287,7 @@ export function LibraryModal({
   }, [open]);
 
   useEffect(() => {
+    selectionAnchorRef.current = null;
     setSelectedIds(new Set());
   }, [filter, search, selectedFolder, sort, statusFilter]);
 
@@ -560,6 +562,7 @@ export function LibraryModal({
   };
 
   const toggleSelect = (id: string) => {
+    selectionAnchorRef.current = id;
     setSelectedIds((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
@@ -569,20 +572,71 @@ export function LibraryModal({
   };
 
   const enterSelectionMode = () => {
+    selectionAnchorRef.current = null;
     setSelectionMode(true);
     setSelectedIds(new Set());
   };
 
   const exitSelectionMode = () => {
+    selectionAnchorRef.current = null;
     setSelectionMode(false);
     setSelectedIds(new Set());
   };
 
   const selectAllVisible = () => {
+    selectionAnchorRef.current = null;
     setSelectedIds(new Set(filtered.map((paper) => paper.id)));
   };
 
-  const clearSelection = () => setSelectedIds(new Set());
+  const clearSelection = () => {
+    selectionAnchorRef.current = null;
+    setSelectedIds(new Set());
+  };
+
+  const selectPaperRange = (paper: StoredPaper) => {
+    const currentIndex = filtered.findIndex((item) => item.id === paper.id);
+    if (currentIndex < 0) return;
+    if (!selectionMode) setSelectionMode(true);
+    const anchorId = selectionAnchorRef.current;
+    const anchorIndex = anchorId
+      ? filtered.findIndex((item) => item.id === anchorId)
+      : -1;
+    if (anchorIndex < 0) {
+      selectionAnchorRef.current = paper.id;
+      setSelectedIds(new Set([paper.id]));
+      return;
+    }
+    const start = Math.min(anchorIndex, currentIndex);
+    const end = Math.max(anchorIndex, currentIndex);
+    setSelectedIds(
+      new Set(filtered.slice(start, end + 1).map((item) => item.id)),
+    );
+  };
+
+  const handlePaperCardActivate = (
+    paper: StoredPaper,
+    shiftKey: boolean,
+  ) => {
+    if (shiftKey) {
+      selectPaperRange(paper);
+      return;
+    }
+    if (selectionMode) {
+      toggleSelect(paper.id);
+      return;
+    }
+    if (paper.status === 'archived') {
+      const archiveLink =
+        paper.source === 'arxiv' && paper.arxivId
+          ? `https://arxiv.org/abs/${paper.arxivId}`
+          : paper.sourceUrl ?? '';
+      if (archiveLink) {
+        window.open(archiveLink, '_blank', 'noopener,noreferrer');
+      }
+      return;
+    }
+    onOpenPaper(paper);
+  };
 
   const openBatchMove = () => {
     if (selectedPapers.length > 0) setMovingPapers(selectedPapers);
@@ -1268,10 +1322,10 @@ export function LibraryModal({
                 <div className="library-result-tools">
                   <span>
                     {selectionMode
-                      ? '点击卡片选择'
+                      ? '点击选择 · Shift 点击连续选择'
                       : statusFilter === 'archived'
-                        ? '点击卡片查看归档名片'
-                        : '点击卡片继续阅读'}
+                        ? '点击查看归档名片 · Shift 点击批量选择'
+                        : '点击继续阅读 · Shift 点击批量选择'}
                   </span>
                   <button
                     type="button"
@@ -1318,39 +1372,16 @@ export function LibraryModal({
                       onDragStart={(event) => startPaperDrag(event, paper)}
                       onDragEnd={clearDragState}
                       title="拖动到文件夹即可移动到该位置"
-                      onClick={() => {
+                      onClick={(event) => {
                         if (isBusy) return;
-                        if (selectionMode) {
-                          toggleSelect(paper.id);
-                        } else if (paper.status === 'archived') {
-                          if (archiveLink) {
-                            window.open(
-                              archiveLink,
-                              '_blank',
-                              'noopener,noreferrer',
-                            );
-                          }
-                        } else {
-                          onOpenPaper(paper);
-                        }
+                        if (event.shiftKey) event.preventDefault();
+                        handlePaperCardActivate(paper, event.shiftKey);
                       }}
                       onKeyDown={(event) => {
                         if (event.target !== event.currentTarget) return;
                         if (!isBusy && (event.key === 'Enter' || event.key === ' ')) {
                           event.preventDefault();
-                          if (selectionMode) {
-                            toggleSelect(paper.id);
-                          } else if (paper.status === 'archived') {
-                            if (archiveLink) {
-                              window.open(
-                                archiveLink,
-                                '_blank',
-                                'noopener,noreferrer',
-                              );
-                            }
-                          } else {
-                            onOpenPaper(paper);
-                          }
+                          handlePaperCardActivate(paper, event.shiftKey);
                         }
                       }}
                       role="button"
@@ -1598,7 +1629,7 @@ export function LibraryModal({
         <div className="library-selection-bar" role="region" aria-label="批量整理论文">
           <div className="library-selection-info">
             <strong>已选 {selectedCount} 篇</strong>
-            <span>{selectedFolderLabel} · 点击卡片继续选择</span>
+            <span>{selectedFolderLabel} · 点击卡片继续选择 · Shift 点击连续选择</span>
           </div>
           <div className="library-selection-actions">
             <button
