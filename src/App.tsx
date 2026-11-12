@@ -181,6 +181,25 @@ interface PdfTranslationJob {
   error: string;
 }
 
+interface ChatGenerationJob {
+  key: string;
+  paperId: string;
+  paperTitle: string;
+  threadId: string;
+  thread: ConversationThread;
+  messages: ChatMessage[];
+  status: 'running' | 'done' | 'error' | 'stopped';
+  controller: AbortController;
+  saveChain: Promise<void>;
+  startedAt: number;
+  cancelled: boolean;
+  finished: boolean;
+}
+
+function chatJobKey(paperId: string, threadId: string): string {
+  return `${paperId}::${threadId}`;
+}
+
 function makeId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -222,7 +241,7 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const streamingRef = useRef(false);
-  const abortRef = useRef<AbortController | null>(null);
+  const chatJobsRef = useRef<Map<string, ChatGenerationJob>>(new Map());
   const [loading, setLoading] = useState<LoadProgress | null>(null);
   const [loadError, setLoadError] = useState('');
   const loadAbortRef = useRef<AbortController | null>(null);
@@ -917,6 +936,104 @@ export default function App() {
     setToast('已取消 PDF 翻译');
   };
 
+  const getChatJob = (paperId: string, threadId: string) =>
+    chatJobsRef.current.get(chatJobKey(paperId, threadId)) ?? null;
+
+  const activeChatJob = (): ChatGenerationJob | null => {
+    const activePaper = paperRef.current;
+    const threadId = activeThreadIdRef.current;
+    return activePaper && threadId
+      ? getChatJob(activePaper.key, threadId)
+      : null;
+  };
+
+  const isChatJobVisible = (job: ChatGenerationJob): boolean =>
+    paperRef.current?.key === job.paperId &&
+    activeThreadIdRef.current === job.threadId;
+
+  const syncChatJobToUi = (job: ChatGenerationJob) => {
+    if (job.cancelled || !isChatJobVisible(job)) return;
+    messagesRef.current = job.messages;
+    setMessages(job.messages);
+    const running = job.status === 'running';
+    streamingRef.current = running;
+    setStreaming(running);
+  };
+
+  const persistChatJob = (job: ChatGenerationJob): Promise<void> => {
+    const storedMessages = messagesForStorage(job.messages).map((message) =>
+      message.status === 'streaming'
+        ? { ...message, status: 'stopped' as const }
+        : message,
+    );
+    const thread: ConversationThread = {
+      ...job.thread,
+      messages: storedMessages,
+      updatedAt: Date.now(),
+    };
+    job.thread = thread;
+    job.saveChain = job.saveChain
+      .then(async () => {
+        if (job.cancelled) return;
+        await saveThread(thread);
+        if (job.cancelled || paperRef.current?.key !== job.paperId) return;
+        const next = [
+          thread,
+          ...threadsRef.current.filter((item) => item.id !== thread.id),
+        ].sort((a, b) => b.updatedAt - a.updatedAt);
+        threadsRef.current = next;
+        setThreads(next);
+      })
+      .catch((error) => {
+        console.warn('Failed to save background chat', error);
+        setToast('对话保存失败，请检查浏览器存储空间。');
+      });
+    return job.saveChain;
+  };
+
+  const finishChatJob = async (job: ChatGenerationJob) => {
+    if (job.cancelled || job.finished) return;
+    job.finished = true;
+    if (job.status === 'running') job.status = 'done';
+    const wasVisible = isChatJobVisible(job);
+    syncChatJobToUi(job);
+    await persistChatJob(job);
+    if (job.cancelled) return;
+    if (!wasVisible) {
+      if (job.status === 'done') {
+        setToast(`《${job.paperTitle}》的回答已在后台生成`);
+      } else if (job.status === 'error') {
+        setToast(`《${job.paperTitle}》的回答生成失败`);
+      }
+    }
+  };
+
+  const cancelChatJob = (job: ChatGenerationJob): Promise<void> => {
+    job.cancelled = true;
+    job.controller.abort();
+    chatJobsRef.current.delete(job.key);
+    if (isChatJobVisible(job)) {
+      streamingRef.current = false;
+      setStreaming(false);
+    }
+    return job.saveChain.catch(() => undefined);
+  };
+
+  const cancelChatJobsForPaper = (paperId: string): Promise<void[]> =>
+    Promise.all(
+      [...chatJobsRef.current.values()]
+        .filter((job) => job.paperId === paperId)
+        .map((job) => cancelChatJob(job)),
+    );
+
+  const cancelChatJobForThread = (
+    paperId: string,
+    threadId: string,
+  ): Promise<void> | null => {
+    const job = getChatJob(paperId, threadId);
+    return job ? cancelChatJob(job) : null;
+  };
+
   const activatePaper = (
     session: PaperSession,
     restored: RestoredThreads = emptyThreadState(),
@@ -926,21 +1043,51 @@ export default function App() {
     setNotesOpen(false);
     setNoteSavedAt(null);
     setNoteSaving(false);
+    const leavingJob = activeChatJob();
+    if (leavingJob?.status === 'running') void persistChatJob(leavingJob);
     void saveCurrentThreadSnapshot();
-    abortRef.current?.abort();
-    abortRef.current = null;
     const previous = paperRef.current;
     paperRef.current = session;
     setPaper(session);
-    setThreads(restored.threads);
-    threadsRef.current = restored.threads;
-    setActiveThreadId(restored.activeThreadId);
-    activeThreadIdRef.current = restored.activeThreadId;
-    setMessages(restored.messages);
-    messagesRef.current = restored.messages;
+
+    const jobsForPaper = [...chatJobsRef.current.values()]
+      .filter((job) => job.paperId === session.key)
+      .sort((a, b) => b.startedAt - a.startedAt);
+    let nextThreads = [...restored.threads];
+    for (const job of jobsForPaper) {
+      const jobThread: ConversationThread = {
+        ...job.thread,
+        messages: job.messages,
+      };
+      const existingIndex = nextThreads.findIndex(
+        (thread) => thread.id === job.threadId,
+      );
+      if (existingIndex >= 0) {
+        nextThreads[existingIndex] = jobThread;
+      } else {
+        nextThreads = [jobThread, ...nextThreads];
+      }
+    }
+    let nextActiveThreadId = restored.activeThreadId;
+    if (!nextActiveThreadId && jobsForPaper.length > 0) {
+      nextActiveThreadId = jobsForPaper[0].threadId;
+    }
+    const activeJob = nextActiveThreadId
+      ? jobsForPaper.find((job) => job.threadId === nextActiveThreadId) ?? null
+      : null;
+    const nextMessages = activeJob
+      ? activeJob.messages
+      : restored.messages;
+    setThreads(nextThreads);
+    threadsRef.current = nextThreads;
+    setActiveThreadId(nextActiveThreadId);
+    activeThreadIdRef.current = nextActiveThreadId;
+    setMessages(nextMessages);
+    messagesRef.current = nextMessages;
     setHistoryOpen(false);
-    setStreaming(false);
-    streamingRef.current = false;
+    const jobRunning = activeJob?.status === 'running';
+    setStreaming(jobRunning);
+    streamingRef.current = jobRunning;
     const startPage = Math.max(1, restored.startPage || 1);
     setCurrentPage(startPage);
     setJumpRequest(startPage > 1 ? { page: startPage, nonce: Date.now() } : null);
@@ -1031,6 +1178,13 @@ export default function App() {
   const saveCurrentThreadSnapshot = async (snapshot?: ChatMessage[]): Promise<void> => {
     const activePaper = paperRef.current;
     const threadId = activeThreadIdRef.current;
+    if (
+      activePaper &&
+      threadId &&
+      getChatJob(activePaper.key, threadId)?.status === 'running'
+    ) {
+      return;
+    }
     const currentMessages = messagesForStorage(snapshot ?? messagesRef.current).map(
       (message) =>
         message.status === 'streaming'
@@ -1061,8 +1215,14 @@ export default function App() {
   };
 
   const pauseStreamForNavigation = (): ChatMessage[] => {
+    const job = activeChatJob();
+    if (job?.status === 'running') {
+      void persistChatJob(job);
+      streamingRef.current = false;
+      setStreaming(false);
+      return job.messages;
+    }
     if (!streamingRef.current) return messagesRef.current;
-    abortRef.current?.abort();
     streamingRef.current = false;
     setStreaming(false);
     const next = messagesRef.current.map((message) =>
@@ -1491,8 +1651,8 @@ export default function App() {
     noteRef.current = { paperId: null, markdown: '' };
     noteDirtyRef.current = false;
     resetTranslation();
-    abortRef.current?.abort();
-    abortRef.current = null;
+    const leavingJob = activeChatJob();
+    if (leavingJob?.status === 'running') void persistChatJob(leavingJob);
     loadAbortRef.current?.abort();
     loadAbortRef.current = null;
     streamingRef.current = false;
@@ -1749,6 +1909,7 @@ export default function App() {
     if (!window.confirm(message)) return;
     translationControllersRef.current.get(record.id)?.abort();
     translationControllersRef.current.delete(record.id);
+    await cancelChatJobsForPaper(record.id);
     dismissTranslationJob(record.id);
     try {
       await deleteStoredPaper(record.id);
@@ -2063,25 +2224,16 @@ export default function App() {
 
   useEffect(() => {
     return () => {
-      abortRef.current?.abort();
+      for (const job of chatJobsRef.current.values()) {
+        job.cancelled = true;
+        job.controller.abort();
+      }
+      chatJobsRef.current.clear();
       loadAbortRef.current?.abort();
       if (paperRef.current) disposePaper(paperRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const updateAssistant = (
-    id: string,
-    update: (message: ChatMessage) => ChatMessage,
-  ) => {
-    setMessages((current) => {
-      const next = current.map((message) =>
-        message.id === id ? update(message) : message,
-      );
-      messagesRef.current = next;
-      return next;
-    });
-  };
 
   const syncConversationCount = async (paperId: string, count: number) => {
     try {
@@ -2102,10 +2254,20 @@ export default function App() {
     images: ChatImage[] = [],
   ) => {
     const activePaper = paperRef.current;
-    if (!activePaper || streamingRef.current) return;
+    if (!activePaper) return;
+    const currentThreadId = activeThreadIdRef.current;
+    if (
+      currentThreadId &&
+      getChatJob(activePaper.key, currentThreadId)?.status === 'running'
+    ) {
+      return;
+    }
 
     let threadId = activeThreadIdRef.current;
-    if (!threadId) {
+    let thread = threadId
+      ? threadsRef.current.find((item) => item.id === threadId)
+      : undefined;
+    if (!threadId || !thread) {
       const now = Date.now();
       const newThread: ConversationThread = {
         id: makeId(),
@@ -2116,6 +2278,7 @@ export default function App() {
         messages: [],
       };
       threadId = newThread.id;
+      thread = newThread;
       activeThreadIdRef.current = threadId;
       setActiveThreadId(threadId);
       const nextThreads = [newThread, ...threadsRef.current];
@@ -2129,6 +2292,7 @@ export default function App() {
         setToast('新对话未能保存到历史记录');
       }
     }
+    if (!thread) return;
 
     const userMessage: ChatMessage = {
       id: makeId(),
@@ -2175,12 +2339,37 @@ export default function App() {
       }));
 
     const nextMessages = [...baseMessages, userMessage, assistantMessage];
-    messagesRef.current = nextMessages;
-    setMessages(nextMessages);
-    streamingRef.current = true;
-    setStreaming(true);
     const controller = new AbortController();
-    abortRef.current = controller;
+    const job: ChatGenerationJob = {
+      key: chatJobKey(activePaper.key, threadId),
+      paperId: activePaper.key,
+      paperTitle: activePaper.meta.title,
+      threadId,
+      thread,
+      messages: nextMessages,
+      status: 'running',
+      controller,
+      saveChain: Promise.resolve(),
+      startedAt: Date.now(),
+      cancelled: false,
+      finished: false,
+    };
+    chatJobsRef.current.set(job.key, job);
+    syncChatJobToUi(job);
+    void persistChatJob(job);
+
+    const updateAssistant = (
+      id: string,
+      update: (message: ChatMessage) => ChatMessage,
+    ) => {
+      if (job.cancelled) return;
+      job.messages = job.messages.map((message) =>
+        message.id === id ? update(message) : message,
+      );
+      if (job.status === 'running' && isChatJobVisible(job)) {
+        syncChatJobToUi(job);
+      }
+    };
 
     let pending = '';
     let rawStream = '';
@@ -2240,7 +2429,6 @@ export default function App() {
         focusPage,
         signal: controller.signal,
         onEvent: (event) => {
-          if (paperRef.current?.key !== activePaper.key) return;
           if (event.type === 'delta' && event.text) {
             rawStream += event.text;
             pending += event.text;
@@ -2257,42 +2445,43 @@ export default function App() {
               status: 'error',
               error: event.message || '生成回答时出错',
             }));
+            job.status = 'error';
           } else if (event.type === 'done') {
             flush();
             const display = extractNoteBlock(rawStream);
-            if (!noteApplied) {
-              // Still restore the exact final text if the note parser did not
-              // consume a note block (normal chat).
-              rawStream = display;
-            }
+            if (!noteApplied) rawStream = display;
             updateAssistant(assistantId, (message) =>
               message.status === 'streaming'
                 ? { ...message, content: display, status: 'done' }
                 : message,
             );
+            job.status = 'done';
           } else if (event.type === 'aborted') {
             flush();
             updateAssistant(assistantId, (message) => ({
               ...message,
               status: 'stopped',
             }));
+            job.status = 'stopped';
           }
         },
       });
       flush();
-      if (!noteApplied) {
-        const display = extractNoteBlock(rawStream);
-        updateAssistant(assistantId, (message) =>
-          message.status === 'streaming'
-            ? { ...message, content: display, status: 'done' }
-            : message,
-        );
-      } else {
-        updateAssistant(assistantId, (message) =>
-          message.status === 'streaming'
-            ? { ...message, status: 'done' }
-            : message,
-        );
+      if (job.status === 'running') {
+        if (!noteApplied) {
+          const display = extractNoteBlock(rawStream);
+          updateAssistant(assistantId, (message) =>
+            message.status === 'streaming'
+              ? { ...message, content: display, status: 'done' }
+              : message,
+          );
+        } else {
+          updateAssistant(assistantId, (message) =>
+            message.status === 'streaming'
+              ? { ...message, status: 'done' }
+              : message,
+          );
+        }
       }
     } catch (error) {
       if (frame) {
@@ -2303,26 +2492,31 @@ export default function App() {
       const aborted =
         controller.signal.aborted ||
         (error instanceof DOMException && error.name === 'AbortError');
-      if (aborted) {
-        updateAssistant(assistantId, (message) => ({
-          ...message,
-          status: 'stopped',
-        }));
-      } else {
-        const typed = error as Error & { code?: string };
-        updateAssistant(assistantId, (message) => ({
-          ...message,
-          status: 'error',
-          error: typed.message || '生成回答时发生未知错误',
-          errorCode: typed.code,
-        }));
-        if (typed.code === 'NO_API_KEY') setSettingsOpen(true);
+      if (job.status === 'running') {
+        if (aborted) {
+          updateAssistant(assistantId, (message) => ({
+            ...message,
+            status: 'stopped',
+          }));
+          job.status = 'stopped';
+        } else {
+          const typed = error as Error & { code?: string };
+          updateAssistant(assistantId, (message) => ({
+            ...message,
+            status: 'error',
+            error: typed.message || '生成回答时发生未知错误',
+            errorCode: typed.code,
+          }));
+          job.status = 'error';
+          if (typed.code === 'NO_API_KEY' && isChatJobVisible(job)) {
+            setSettingsOpen(true);
+          }
+        }
       }
     } finally {
       if (frame) window.cancelAnimationFrame(frame);
-      streamingRef.current = false;
-      setStreaming(false);
-      if (abortRef.current === controller) abortRef.current = null;
+      if (job.status === 'running') job.status = 'done';
+      await finishChatJob(job);
     }
   };
 
@@ -2375,7 +2569,11 @@ export default function App() {
   };
 
   const stopStreaming = () => {
-    abortRef.current?.abort();
+    const job = activeChatJob();
+    if (job?.status === 'running') {
+      job.controller.abort();
+      return;
+    }
     streamingRef.current = false;
     setStreaming(false);
     const next = messagesRef.current.map((message) =>
@@ -2395,6 +2593,8 @@ export default function App() {
     setActiveThreadId(null);
     messagesRef.current = [];
     setMessages([]);
+    streamingRef.current = false;
+    setStreaming(false);
   };
 
   const handleSelectThread = async (thread: ConversationThread) => {
@@ -2404,16 +2604,29 @@ export default function App() {
     }
     const snapshot = pauseStreamForNavigation();
     await saveCurrentThreadSnapshot(snapshot);
+    const activePaper = paperRef.current;
+    const job = activePaper
+      ? getChatJob(activePaper.key, thread.id)
+      : null;
+    const nextMessages = job ? job.messages : thread.messages;
     activeThreadIdRef.current = thread.id;
     setActiveThreadId(thread.id);
-    messagesRef.current = thread.messages;
-    setMessages(thread.messages);
+    messagesRef.current = nextMessages;
+    setMessages(nextMessages);
+    const running = job?.status === 'running';
+    streamingRef.current = running;
+    setStreaming(running);
     setHistoryOpen(false);
   };
 
   const handleDeleteThread = async (thread: ConversationThread) => {
     const isActive = thread.id === activeThreadIdRef.current;
-    if (isActive) pauseStreamForNavigation();
+    const cancelPromise = cancelChatJobForThread(thread.paperId, thread.id);
+    if (cancelPromise) await cancelPromise;
+    if (isActive) {
+      streamingRef.current = false;
+      setStreaming(false);
+    }
     try {
       await deleteStoredThread(thread.id);
     } catch (error) {
@@ -2441,6 +2654,8 @@ export default function App() {
       title: nextTitle,
       updatedAt: Date.now(),
     };
+    const job = getChatJob(thread.paperId, thread.id);
+    if (job) job.thread = { ...job.thread, title: nextTitle, updatedAt: updated.updatedAt };
     try {
       await saveThread(updated);
       const nextThreads = threadsRef.current
@@ -2455,7 +2670,7 @@ export default function App() {
   };
 
   const retry = () => {
-    if (streamingRef.current) return;
+    if (activeChatJob()?.status === 'running') return;
     const next = [...messages];
     while (
       next.length > 0 &&
