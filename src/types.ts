@@ -166,6 +166,34 @@ export interface PaperNote {
   updatedAt: number;
 }
 
+export type AnnotationStyle = 'highlight' | 'underline' | 'strike' | 'comment';
+export type AnnotationVariant = 'original' | 'translated';
+
+export interface AnnotationRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface AnnotationSegment {
+  page: number;
+  rects: AnnotationRect[];
+}
+
+export interface PaperAnnotation {
+  id: string;
+  paperId: string;
+  variant: AnnotationVariant;
+  text: string;
+  style: AnnotationStyle;
+  color: string;
+  segments: AnnotationSegment[];
+  comment: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Folder {
   id: string;
   name: string;

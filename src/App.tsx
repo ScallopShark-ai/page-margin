@@ -27,6 +27,7 @@ import type {
   JumpRequest,
   LoadProgress,
   ModelConfig,
+  PaperAnnotation,
   PaperMeta,
   PaperSession,
   PaperStatus,
@@ -84,6 +85,7 @@ import {
 import {
   archivePaper as archiveStoredPaper,
   createFolder as createStoredFolder,
+  deleteAnnotation,
   deleteFolder as deleteStoredFolder,
   folderPathLabel,
   deletePaper as deleteStoredPaper,
@@ -95,6 +97,7 @@ import {
   getPaperRecord,
   getTranslatedPdf,
   isLibrarySupported,
+  listAnnotations,
   listFolders,
   listPapers,
   listThreads,
@@ -103,6 +106,7 @@ import {
   moveFolders as moveStoredFolders,
   movePapersToFolder,
   renameFolder as renameStoredFolder,
+  saveAnnotation,
   savePaper,
   savePaperNote,
   setPaperStatus as setStoredPaperStatus,
@@ -238,6 +242,8 @@ export default function App() {
   const noteDirtyRef = useRef(false);
   const noteSaveTimerRef = useRef<number | null>(null);
   const noteLoadTokenRef = useRef(0);
+  const [annotations, setAnnotations] = useState<PaperAnnotation[]>([]);
+  const annotationLoadTokenRef = useRef(0);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const streamingRef = useRef(false);
@@ -503,6 +509,79 @@ export default function App() {
       }
     } finally {
       if (token === noteLoadTokenRef.current) setNoteLoading(false);
+    }
+  };
+
+  const loadPaperAnnotations = async (paperId: string) => {
+    const token = ++annotationLoadTokenRef.current;
+    setAnnotations([]);
+    try {
+      const rows = await listAnnotations(paperId);
+      if (
+        token !== annotationLoadTokenRef.current ||
+        paperRef.current?.key !== paperId
+      ) {
+        return;
+      }
+      setAnnotations(rows);
+    } catch (error) {
+      console.warn('Failed to load annotations', error);
+    }
+  };
+
+  const handleCreateAnnotation = async (
+    annotation: PaperAnnotation,
+  ): Promise<boolean> => {
+    try {
+      await saveAnnotation(annotation);
+      if (paperRef.current?.key === annotation.paperId) {
+        setAnnotations((current) =>
+          [
+            ...current.filter((item) => item.id !== annotation.id),
+            annotation,
+          ].sort((a, b) => a.createdAt - b.createdAt),
+        );
+      }
+      return true;
+    } catch (error) {
+      console.warn('Failed to save annotation', error);
+      setToast('标注保存失败，请检查浏览器存储空间。');
+      return false;
+    }
+  };
+
+  const handleUpdateAnnotation = async (
+    annotation: PaperAnnotation,
+  ): Promise<boolean> => {
+    try {
+      await saveAnnotation(annotation);
+      if (paperRef.current?.key === annotation.paperId) {
+        setAnnotations((current) =>
+          current.map((item) =>
+            item.id === annotation.id ? annotation : item,
+          ),
+        );
+      }
+      return true;
+    } catch (error) {
+      console.warn('Failed to update annotation', error);
+      setToast('标注保存失败，请检查浏览器存储空间。');
+      return false;
+    }
+  };
+
+  const handleDeleteAnnotation = async (id: string): Promise<boolean> => {
+    const paperId = annotations.find((item) => item.id === id)?.paperId;
+    try {
+      await deleteAnnotation(id);
+      if (paperRef.current?.key === paperId) {
+        setAnnotations((current) => current.filter((item) => item.id !== id));
+      }
+      return true;
+    } catch (error) {
+      console.warn('Failed to delete annotation', error);
+      setToast('标注删除失败，请稍后重试。');
+      return false;
     }
   };
 
@@ -1093,6 +1172,7 @@ export default function App() {
     setJumpRequest(startPage > 1 ? { page: startPage, nonce: Date.now() } : null);
     setMobileTab('paper');
     void loadPaperNote(session.key);
+    void loadPaperAnnotations(session.key);
     const translationJob = translationJobs[session.key];
     if (translationJob?.status === 'running') {
       setTranslationStatus('loading');
@@ -1650,6 +1730,8 @@ export default function App() {
     setNoteSavedAt(null);
     noteRef.current = { paperId: null, markdown: '' };
     noteDirtyRef.current = false;
+    annotationLoadTokenRef.current += 1;
+    setAnnotations([]);
     resetTranslation();
     const leavingJob = activeChatJob();
     if (leavingJob?.status === 'running') void persistChatJob(leavingJob);
@@ -2954,7 +3036,12 @@ export default function App() {
             onPageChange={setCurrentPage}
             modelReady={modelReady}
             config={config}
+            paperId={paper.key}
             paperTitle={paper.meta.title}
+            annotations={annotations}
+            onCreateAnnotation={handleCreateAnnotation}
+            onUpdateAnnotation={handleUpdateAnnotation}
+            onDeleteAnnotation={handleDeleteAnnotation}
             onOpenSettings={() => setSettingsOpen(true)}
             getPageContext={(page) =>
               paper.pages.find((item) => item.page === page)?.text ?? ''

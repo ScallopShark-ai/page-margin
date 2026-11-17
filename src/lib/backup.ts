@@ -16,6 +16,7 @@ const BACKUP_VERSION = 1;
 const PAPERS = 'papers';
 const CONTENTS = 'contents';
 const TRANSLATIONS = 'translations';
+const ANNOTATIONS = 'annotations';
 const STORE_NAMES = [...LIBRARY_STORE_NAMES];
 
 export interface BackupSession {
@@ -116,16 +117,25 @@ export async function createBackup(
   lastSession: BackupSession,
 ): Promise<{ blob: Blob; filename: string; counts: Record<string, number> }> {
   const db = await openLibraryDatabase();
-  const [papers, contents, conversations, folders, importRuns, translations, notes] =
-    await Promise.all([
-      readStore<Record<string, unknown>>(db, PAPERS),
-      readStore<Record<string, unknown>>(db, CONTENTS),
-      readStore<Record<string, unknown>>(db, 'conversations'),
-      readStore<Record<string, unknown>>(db, 'folders'),
-      readStore<Record<string, unknown>>(db, 'importRuns'),
-      readStore<Record<string, unknown>>(db, TRANSLATIONS),
-      readStore<Record<string, unknown>>(db, 'notes'),
-    ]);
+  const [
+    papers,
+    contents,
+    conversations,
+    folders,
+    importRuns,
+    translations,
+    notes,
+    annotations,
+  ] = await Promise.all([
+    readStore<Record<string, unknown>>(db, PAPERS),
+    readStore<Record<string, unknown>>(db, CONTENTS),
+    readStore<Record<string, unknown>>(db, 'conversations'),
+    readStore<Record<string, unknown>>(db, 'folders'),
+    readStore<Record<string, unknown>>(db, 'importRuns'),
+    readStore<Record<string, unknown>>(db, TRANSLATIONS),
+    readStore<Record<string, unknown>>(db, 'notes'),
+    readStore<Record<string, unknown>>(db, ANNOTATIONS),
+  ]);
 
   const files: AsyncZippable = {};
   const counts: Record<string, number> = {
@@ -136,6 +146,7 @@ export async function createBackup(
     importRuns: importRuns.length,
     translations: translations.length,
     notes: notes.length,
+    annotations: annotations.length,
   };
 
   let contentBlobIndex = 0;
@@ -190,6 +201,7 @@ export async function createBackup(
   files['data/folders.json'] = strToU8(JSON.stringify(folders));
   files['data/importRuns.json'] = strToU8(JSON.stringify(importRuns));
   files['data/notes.json'] = strToU8(JSON.stringify(notes));
+  files['data/annotations.json'] = strToU8(JSON.stringify(annotations));
 
   const archive = await zipAsync(files);
   return {
@@ -214,6 +226,15 @@ function readJson<T>(
   }
 }
 
+function readJsonOptional<T>(
+  files: Record<string, Uint8Array>,
+  path: string,
+  fallback: T,
+): T {
+  if (!files[path]) return fallback;
+  return readJson<T>(files, path);
+}
+
 export async function restoreBackup(file: File): Promise<RestoreResult> {
   const archive = await unzipAsync(new Uint8Array(await file.arrayBuffer()));
   const manifest = readJson<BackupManifest>(archive, 'manifest.json');
@@ -233,6 +254,11 @@ export async function restoreBackup(file: File): Promise<RestoreResult> {
     importRuns: readJson(archive, 'data/importRuns.json'),
     translations: readJson(archive, 'data/translations.json'),
     notes: readJson(archive, 'data/notes.json'),
+    annotations: readJsonOptional(
+      archive,
+      'data/annotations.json',
+      [] as Record<string, unknown>[],
+    ),
   };
 
   for (const row of rows.contents) {

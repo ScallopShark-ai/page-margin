@@ -4,6 +4,7 @@ import type {
   Folder,
   ImportHistoryRun,
   PageText,
+  PaperAnnotation,
   PaperContent,
   PaperMeta,
   PaperNote,
@@ -12,7 +13,7 @@ import type {
 } from '../types';
 
 const DB_NAME = 'pagemargin.library.v1';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const PAPERS = 'papers';
 const CONTENTS = 'contents';
 const CONVERSATIONS = 'conversations';
@@ -20,6 +21,7 @@ const FOLDERS = 'folders';
 const IMPORT_RUNS = 'importRuns';
 const TRANSLATIONS = 'translations';
 const NOTES = 'notes';
+const ANNOTATIONS = 'annotations';
 const MAX_IMPORT_RUNS = 200;
 
 export const LIBRARY_DB_NAME = DB_NAME;
@@ -31,6 +33,7 @@ export const LIBRARY_STORE_NAMES = [
   IMPORT_RUNS,
   TRANSLATIONS,
   NOTES,
+  ANNOTATIONS,
 ] as const;
 
 const FOLDER_COLORS = [
@@ -84,6 +87,11 @@ function openDatabase(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(NOTES)) {
         db.createObjectStore(NOTES, { keyPath: 'paperId' });
+      }
+      if (!db.objectStoreNames.contains(ANNOTATIONS)) {
+        const store = db.createObjectStore(ANNOTATIONS, { keyPath: 'id' });
+        store.createIndex('paperId', 'paperId', { unique: false });
+        store.createIndex('updatedAt', 'updatedAt', { unique: false });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -763,16 +771,52 @@ export async function deletePaperNote(paperId: string): Promise<void> {
   await transactionDone(transaction);
 }
 
+export async function listAnnotations(
+  paperId: string,
+): Promise<PaperAnnotation[]> {
+  const db = await openDatabase();
+  const transaction = db.transaction(ANNOTATIONS, 'readonly');
+  const rows = (await requestResult(
+    transaction.objectStore(ANNOTATIONS).index('paperId').getAll(paperId),
+  )) as PaperAnnotation[];
+  await transactionDone(transaction);
+  return rows.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export async function saveAnnotation(
+  annotation: PaperAnnotation,
+): Promise<void> {
+  const db = await openDatabase();
+  const transaction = db.transaction(ANNOTATIONS, 'readwrite');
+  transaction.objectStore(ANNOTATIONS).put(annotation);
+  await transactionDone(transaction);
+}
+
+export async function deleteAnnotation(id: string): Promise<void> {
+  const db = await openDatabase();
+  const transaction = db.transaction(ANNOTATIONS, 'readwrite');
+  transaction.objectStore(ANNOTATIONS).delete(id);
+  await transactionDone(transaction);
+}
+
 export async function deletePaper(id: string): Promise<void> {
   const db = await openDatabase();
   const transaction = db.transaction(
-    [PAPERS, CONTENTS, CONVERSATIONS, TRANSLATIONS, NOTES],
+    [PAPERS, CONTENTS, CONVERSATIONS, TRANSLATIONS, NOTES, ANNOTATIONS],
     'readwrite',
   );
   transaction.objectStore(PAPERS).delete(id);
   transaction.objectStore(CONTENTS).delete(id);
   transaction.objectStore(TRANSLATIONS).delete(id);
   transaction.objectStore(NOTES).delete(id);
+  const annotationIndex = transaction.objectStore(ANNOTATIONS).index('paperId');
+  const annotationCursor = annotationIndex.openCursor(IDBKeyRange.only(id));
+  annotationCursor.onsuccess = () => {
+    const cursor = annotationCursor.result;
+    if (!cursor) return;
+    cursor.delete();
+    cursor.continue();
+  };
   const index = transaction.objectStore(CONVERSATIONS).index('paperId');
   const cursorRequest = index.openCursor(IDBKeyRange.only(id));
   cursorRequest.onsuccess = () => {

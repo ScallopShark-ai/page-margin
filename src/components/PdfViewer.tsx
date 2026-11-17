@@ -26,8 +26,22 @@ import {
   Settings2,
   X,
 } from 'lucide-react';
-import type { JumpRequest, ModelConfig } from '../types';
+import type {
+  AnnotationRect,
+  AnnotationStyle,
+  AnnotationVariant,
+  JumpRequest,
+  ModelConfig,
+  PaperAnnotation,
+} from '../types';
 import { TranslationPopover } from './TranslationPopover';
+import {
+  AnnotationLayer,
+  AnnotationPopover,
+  AnnotationToolbar,
+  type AnnotationAnchor,
+  type AnnotationDraft,
+} from './PdfAnnotationUi';
 
 interface PdfViewerProps {
   doc: PDFDocumentProxy;
@@ -46,7 +60,12 @@ interface PdfViewerProps {
   onPageChange: (page: number) => void;
   modelReady: boolean;
   config: ModelConfig;
+  paperId: string;
   paperTitle: string;
+  annotations: PaperAnnotation[];
+  onCreateAnnotation: (annotation: PaperAnnotation) => Promise<boolean>;
+  onUpdateAnnotation: (annotation: PaperAnnotation) => Promise<boolean>;
+  onDeleteAnnotation: (id: string) => Promise<boolean>;
   onOpenSettings: () => void;
   getPageContext: (page: number) => string;
 }
@@ -165,6 +184,9 @@ function PageSlot({
   scale,
   rootRef,
   highlighted,
+  annotations,
+  activeAnnotationId,
+  onOpenAnnotation,
 }: {
   doc: PDFDocumentProxy;
   pageNumber: number;
@@ -172,6 +194,12 @@ function PageSlot({
   scale: number;
   rootRef: RefObject<HTMLDivElement | null>;
   highlighted: boolean;
+  annotations: PaperAnnotation[];
+  activeAnnotationId: string | null;
+  onOpenAnnotation: (
+    annotation: PaperAnnotation,
+    anchor: AnnotationAnchor,
+  ) => void;
 }) {
   const slotRef = useRef<HTMLDivElement>(null);
   const [nearViewport, setNearViewport] = useState(false);
@@ -213,6 +241,12 @@ function PageSlot({
       ) : (
         <div className="page-placeholder" />
       )}
+      <AnnotationLayer
+        annotations={annotations}
+        page={pageNumber}
+        activeId={activeAnnotationId}
+        onOpen={onOpenAnnotation}
+      />
       <span className="page-index" aria-hidden="true">
         {pageNumber}
       </span>
@@ -237,13 +271,24 @@ export function PdfViewer({
   onPageChange,
   modelReady,
   config,
+  paperId,
   paperTitle,
+  annotations,
+  onCreateAnnotation,
+  onUpdateAnnotation,
+  onDeleteAnnotation,
   onOpenSettings,
   getPageContext,
 }: PdfViewerProps) {
   const activeDoc = showTranslated && translatedDoc ? translatedDoc : doc;
   const activeHref =
     showTranslated && translatedDoc && translatedHref ? translatedHref : pdfHref;
+  const annotationVariant: AnnotationVariant =
+    showTranslated && translatedDoc ? 'translated' : 'original';
+  const variantAnnotations = useMemo(
+    () => annotations.filter((annotation) => annotation.variant === annotationVariant),
+    [annotations, annotationVariant],
+  );
   const pendingPageRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -253,6 +298,16 @@ export function PdfViewer({
   const [pageInput, setPageInput] = useState('1');
   const [highlightPage, setHighlightPage] = useState<number | null>(null);
   const [selectionPopup, setSelectionPopup] = useState<SelectionPopup | null>(null);
+  const [annotationDraft, setAnnotationDraft] = useState<AnnotationDraft | null>(
+    null,
+  );
+  const [openAnnotation, setOpenAnnotation] = useState<{
+    id: string;
+    anchor: AnnotationAnchor;
+  } | null>(null);
+  const activeAnnotation = openAnnotation
+    ? annotations.find((annotation) => annotation.id === openAnnotation.id) ?? null
+    : null;
   const [translateSelection, setTranslateSelection] = useState(true);
   const translateSelectionRef = useRef(true);
   const [toolbarVisible, setToolbarVisible] = useState(true);
@@ -322,7 +377,6 @@ export function PdfViewer({
     let timer = 0;
 
     const inspectSelection = () => {
-      if (!translateSelectionRef.current) return;
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
       const range = selection.getRangeAt(0);
@@ -335,46 +389,124 @@ export function PdfViewer({
       if (text.length < 2 || text.length > 2000) return;
       if (!/[A-Za-z\u3400-\u9fff]/.test(text)) return;
 
-      const startNode = range.startContainer;
-      const startElement =
-        startNode.nodeType === Node.ELEMENT_NODE
-          ? (startNode as Element)
-          : startNode.parentElement;
-      const pageElement = startElement?.closest<HTMLElement>('[data-page]');
-      const page = Number(pageElement?.dataset.page ?? currentPageRef.current) || 1;
+      const pageSlots = Array.from(
+        root.querySelectorAll<HTMLElement>('[data-page]'),
+      );
+      const grouped = new Map<number, AnnotationRect[]>();
+      for (const clientRect of Array.from(range.getClientRects())) {
+        if (clientRect.width < 1 || clientRect.height < 1) continue;
+        const centerX = clientRect.left + clientRect.width / 2;
+        const centerY = clientRect.top + clientRect.height / 2;
+        const slot = pageSlots.find((candidate) => {
+          const bounds = candidate.getBoundingClientRect();
+          return (
+            centerX >= bounds.left &&
+            centerX <= bounds.right &&
+            centerY >= bounds.top &&
+            centerY <= bounds.bottom
+          );
+        });
+        if (!slot) continue;
+        const page = Number(slot.dataset.page ?? 0);
+        if (!page) continue;
+        const bounds = slot.getBoundingClientRect();
+        if (bounds.width < 1 || bounds.height < 1) continue;
+        const x = Math.max(
+          0,
+          Math.min(1, (clientRect.left - bounds.left) / bounds.width),
+        );
+        const y = Math.max(
+          0,
+          Math.min(1, (clientRect.top - bounds.top) / bounds.height),
+        );
+        const width = Math.max(
+          0,
+          Math.min(1 - x, clientRect.width / bounds.width),
+        );
+        const height = Math.max(
+          0,
+          Math.min(1 - y, clientRect.height / bounds.height),
+        );
+        if (width <= 0 || height <= 0) continue;
+        const rects = grouped.get(page) ?? [];
+        rects.push({ x, y, width, height });
+        grouped.set(page, rects);
+      }
+
+      const segments = [...grouped.entries()]
+        .map(([page, rects]) => ({
+          page,
+          rects: rects.sort((a, b) => a.y - b.y || a.x - b.x),
+        }))
+        .sort((a, b) => a.page - b.page);
+      if (segments.length === 0) return;
+      const page = segments[0].page;
       const rect = range.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return;
-
-      setSelectionPopup((previous) => {
-        if (previous?.text === text && previous.page === page) return previous;
+      const anchor = {
+        top: rect.top,
+        bottom: rect.bottom,
+        left: rect.left,
+        width: rect.width,
+      };
+      setAnnotationDraft((previous) => {
+        if (
+          previous?.text === text &&
+          previous.variant === annotationVariant &&
+          JSON.stringify(previous.segments) === JSON.stringify(segments)
+        ) {
+          return previous;
+        }
         return {
-          id: Date.now() + Math.random(),
           text,
-          page,
-          anchor: {
-            top: rect.top,
-            bottom: rect.bottom,
-            left: rect.left,
-            width: rect.width,
-          },
+          variant: annotationVariant,
+          segments,
+          anchor,
         };
       });
+      setOpenAnnotation(null);
+
+      if (translateSelectionRef.current) {
+        setSelectionPopup((previous) => {
+          if (previous?.text === text && previous.page === page) return previous;
+          return {
+            id: Date.now() + Math.random(),
+            text,
+            page,
+            anchor,
+          };
+        });
+      } else {
+        setSelectionPopup(null);
+      }
     };
 
     const onSelectionChange = () => {
-      if (!translateSelectionRef.current) return;
       window.clearTimeout(timer);
       timer = window.setTimeout(inspectSelection, 280);
     };
     const onMouseDown = (event: MouseEvent) => {
       const target = event.target as Element | null;
-      if (target?.closest('.translation-popover, .modal-backdrop')) return;
+      if (
+        target?.closest(
+          '.translation-popover, .annotation-toolbar, .annotation-popover, .modal-backdrop',
+        )
+      ) {
+        return;
+      }
       setSelectionPopup(null);
+      setAnnotationDraft(null);
+      setOpenAnnotation(null);
     };
-    const onScroll = () => setSelectionPopup(null);
-    const onResize = () => setSelectionPopup(null);
+    const clearPopovers = () => {
+      setSelectionPopup(null);
+      setAnnotationDraft(null);
+      setOpenAnnotation(null);
+    };
+    const onScroll = () => clearPopovers();
+    const onResize = () => clearPopovers();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSelectionPopup(null);
+      if (event.key === 'Escape') clearPopovers();
     };
 
     document.addEventListener('selectionchange', onSelectionChange);
@@ -390,7 +522,10 @@ export function PdfViewer({
       window.removeEventListener('resize', onResize);
       root.removeEventListener('scroll', onScroll);
     };
-  }, []);
+    // The selection inspector reads current annotation state via closure; it
+    // is intentionally rebound only to avoid re-registering on each stream.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [annotationVariant]);
 
   useEffect(() => {
     if (!translateSelection) setSelectionPopup(null);
@@ -398,6 +533,8 @@ export function PdfViewer({
 
   useEffect(() => {
     setSelectionPopup(null);
+    setAnnotationDraft(null);
+    setOpenAnnotation(null);
   }, [activeDoc]);
 
   const baseScale = useMemo(() => {
@@ -548,6 +685,63 @@ export function PdfViewer({
 
   const zoomBy = (delta: number) => {
     setZoom((value) => Math.max(0.55, Math.min(2.6, Math.round((value + delta) * 10) / 10)));
+  };
+
+  const handleCreateAnnotation = async (
+    style: AnnotationStyle,
+    color: string,
+    comment: string,
+  ): Promise<boolean> => {
+    if (!annotationDraft) return false;
+    const now = Date.now();
+    const annotation: PaperAnnotation = {
+      id:
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `annotation-${now}-${Math.random().toString(36).slice(2)}`,
+      paperId,
+      variant: annotationDraft.variant,
+      text: annotationDraft.text,
+      style,
+      color,
+      segments: annotationDraft.segments,
+      comment,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const saved = await onCreateAnnotation(annotation);
+    if (saved) {
+      window.getSelection()?.removeAllRanges();
+      setAnnotationDraft(null);
+      setSelectionPopup(null);
+    }
+    return saved;
+  };
+
+  const openAnnotationPopover = (
+    annotation: PaperAnnotation,
+    anchor: AnnotationAnchor,
+  ) => {
+    setAnnotationDraft(null);
+    setSelectionPopup(null);
+    setOpenAnnotation({ id: annotation.id, anchor });
+  };
+
+  const handleSaveAnnotationComment = async (
+    comment: string,
+  ): Promise<boolean> => {
+    if (!activeAnnotation) return false;
+    const updated = { ...activeAnnotation, comment, updatedAt: Date.now() };
+    const saved = await onUpdateAnnotation(updated);
+    if (saved) setOpenAnnotation(null);
+    return saved;
+  };
+
+  const handleDeleteOpenAnnotation = async (): Promise<boolean> => {
+    if (!activeAnnotation) return false;
+    const deleted = await onDeleteAnnotation(activeAnnotation.id);
+    if (deleted) setOpenAnnotation(null);
+    return deleted;
   };
 
   const isLoadingLayout = sizes.length === 0;
@@ -833,6 +1027,13 @@ export function PdfViewer({
                 scale={scale}
                 rootRef={scrollRef}
                 highlighted={highlightPage === index + 1}
+                annotations={variantAnnotations.filter((annotation) =>
+                  annotation.segments.some(
+                    (segment) => segment.page === index + 1,
+                  ),
+                )}
+                activeAnnotationId={openAnnotation?.id ?? null}
+                onOpenAnnotation={openAnnotationPopover}
               />
             ))}
             <div className="pdf-end-mark">
@@ -857,6 +1058,27 @@ export function PdfViewer({
           modelReady={modelReady}
           onClose={() => setSelectionPopup(null)}
           onOpenSettings={onOpenSettings}
+        />
+      )}
+
+      {annotationDraft && (
+        <AnnotationToolbar
+          key={`${annotationDraft.variant}-${annotationDraft.text}`}
+          draft={annotationDraft}
+          hasTranslation={Boolean(selectionPopup)}
+          onCreate={handleCreateAnnotation}
+          onClose={() => setAnnotationDraft(null)}
+        />
+      )}
+
+      {activeAnnotation && openAnnotation && (
+        <AnnotationPopover
+          key={activeAnnotation.id}
+          annotation={activeAnnotation}
+          anchor={openAnnotation.anchor}
+          onSaveComment={handleSaveAnnotationComment}
+          onDelete={handleDeleteOpenAnnotation}
+          onClose={() => setOpenAnnotation(null)}
         />
       )}
     </div>
