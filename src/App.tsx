@@ -762,7 +762,7 @@ export default function App() {
     if (!file) return;
     if (
       !window.confirm(
-        '从备份恢复会覆盖当前浏览器中的论文、PDF、对话、笔记、翻译和模型设置。确定继续吗？',
+        '从备份恢复会覆盖当前浏览器中的论文、PDF、对话、笔记、标注、图片、翻译和模型设置。确定继续吗？',
       )
     ) {
       return;

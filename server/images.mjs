@@ -118,6 +118,56 @@ export async function saveImage(input) {
   }
 }
 
+export async function restoreImage(input) {
+  const raw = input?.image && typeof input.image === 'object' ? input.image : {};
+  const id = String(raw.id ?? '');
+  if (!/^img_[a-z0-9_]+$/i.test(id)) {
+    const error = new Error('无效的图片 ID');
+    error.status = 400;
+    throw error;
+  }
+  const parsed = parseDataUrl(input?.dataUrl);
+  if (!parsed) {
+    const error = new Error('备份中的图片格式不支持，或图片超过 8 MB');
+    error.status = 400;
+    throw error;
+  }
+  const fileName = `${id}.${parsed.extension}`;
+  const image = {
+    id,
+    url: `${IMAGE_URL_PREFIX}${id}`,
+    fileName,
+    name: safeText(raw.name, 160) || '论文图片',
+    mimeType: parsed.mimeType,
+    bytes: parsed.bytes.length,
+    width: Math.max(0, Math.round(Number(raw.width) || 0)),
+    height: Math.max(0, Math.round(Number(raw.height) || 0)),
+    paperId: safeText(raw.paperId, 200),
+    paperTitle: safeText(raw.paperTitle, 240),
+    alt: safeText(raw.alt, 300),
+    page: Math.max(0, Math.round(Number(raw.page) || 0)),
+    source: ['chat', 'figure', 'upload'].includes(raw.source)
+      ? raw.source
+      : 'upload',
+    createdAt: Math.max(0, Number(raw.createdAt) || Date.now()),
+  };
+
+  await ensureStore();
+  await fs.writeFile(path.join(imageDir, fileName), parsed.bytes);
+  try {
+    return await withLock(async () => {
+      const images = await readIndex();
+      await writeIndex(
+        [image, ...images.filter((item) => item.id !== id)].slice(0, 500),
+      );
+      return image;
+    });
+  } catch (error) {
+    await fs.rm(path.join(imageDir, fileName), { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
 export async function deleteImage(id) {
   if (!/^img_[a-z0-9_]+$/i.test(String(id ?? ''))) {
     const error = new Error('无效的图片 ID');
@@ -158,6 +208,15 @@ export function createImagesRouter() {
   router.post('/', async (req, res, next) => {
     try {
       const image = await saveImage(req.body);
+      res.status(201).json({ image });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/restore', async (req, res, next) => {
+    try {
+      const image = await restoreImage(req.body);
       res.status(201).json({ image });
     } catch (error) {
       next(error);

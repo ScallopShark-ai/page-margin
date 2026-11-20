@@ -17,7 +17,9 @@ const PAPERS = 'papers';
 const CONTENTS = 'contents';
 const TRANSLATIONS = 'translations';
 const ANNOTATIONS = 'annotations';
+const IMAGES = 'images';
 const STORE_NAMES = [...LIBRARY_STORE_NAMES];
+const IMAGE_FILE_RE = /^img_[a-z0-9_]+\.(?:png|jpg|webp)$/i;
 
 export interface BackupSession {
   paperId: string | null;
@@ -38,6 +40,18 @@ interface BackupManifest {
 export interface RestoreResult {
   lastSession: BackupSession;
   counts: Record<string, number>;
+  images?: { restored: number; failed: number };
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(index, Math.min(bytes.length, index + chunk)),
+    );
+  }
+  return btoa(binary);
 }
 
 function requestResult<T>(request: IDBRequest): Promise<T> {
@@ -113,6 +127,43 @@ function backupFilename(): string {
   )}-${pad(now.getHours())}${pad(now.getMinutes())}.zip`;
 }
 
+async function collectSiteImages(
+  files: AsyncZippable,
+): Promise<Record<string, unknown>[]> {
+  let rows: Record<string, unknown>[] = [];
+  try {
+    const response = await fetch('/api/images', { cache: 'no-store' });
+    if (response.ok) {
+      const payload = (await response.json()) as { images?: unknown };
+      if (Array.isArray(payload.images)) {
+        rows = payload.images as Record<string, unknown>[];
+      }
+    }
+  } catch {
+    return [];
+  }
+
+  const saved: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    const fileName = String(row.fileName ?? '');
+    if (!IMAGE_FILE_RE.test(fileName)) continue;
+    try {
+      const response = await fetch(
+        `/api/images/${encodeURIComponent(String(row.id ?? ''))}`,
+        { cache: 'no-store' },
+      );
+      if (!response.ok) continue;
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.length === 0) continue;
+      files[`images/${fileName}`] = [bytes, { level: 0 }];
+      saved.push({ ...row, fileName });
+    } catch {
+      // One unreadable image should not abort the whole backup.
+    }
+  }
+  return saved;
+}
+
 export async function createBackup(
   lastSession: BackupSession,
 ): Promise<{ blob: Blob; filename: string; counts: Record<string, number> }> {
@@ -138,6 +189,7 @@ export async function createBackup(
   ]);
 
   const files: AsyncZippable = {};
+  const siteImages = await collectSiteImages(files);
   const counts: Record<string, number> = {
     papers: papers.length,
     contents: contents.length,
@@ -147,6 +199,7 @@ export async function createBackup(
     translations: translations.length,
     notes: notes.length,
     annotations: annotations.length,
+    images: siteImages.length,
   };
 
   let contentBlobIndex = 0;
@@ -202,6 +255,7 @@ export async function createBackup(
   files['data/importRuns.json'] = strToU8(JSON.stringify(importRuns));
   files['data/notes.json'] = strToU8(JSON.stringify(notes));
   files['data/annotations.json'] = strToU8(JSON.stringify(annotations));
+  files[`data/${IMAGES}.json`] = strToU8(JSON.stringify(siteImages));
 
   const archive = await zipAsync(files);
   return {
@@ -260,6 +314,11 @@ export async function restoreBackup(file: File): Promise<RestoreResult> {
       [] as Record<string, unknown>[],
     ),
   };
+  const imageRows = readJsonOptional(
+    archive,
+    `data/${IMAGES}.json`,
+    [] as Record<string, unknown>[],
+  );
 
   for (const row of rows.contents) {
     const path = row.pdfFile;
@@ -304,6 +363,42 @@ export async function restoreBackup(file: File): Promise<RestoreResult> {
     }
   });
 
+  let restoredImages = 0;
+  let failedImages = 0;
+  for (const row of imageRows) {
+    const fileName = String(row.fileName ?? '');
+    const id = String(row.id ?? '');
+    const mimeType = String(row.mimeType ?? '');
+    if (
+      !IMAGE_FILE_RE.test(fileName) ||
+      !/^img_[a-z0-9_]+$/i.test(id) ||
+      !/^image\/(?:png|jpeg|webp)$/i.test(mimeType)
+    ) {
+      failedImages += 1;
+      continue;
+    }
+    const data = archive[`images/${fileName}`];
+    if (!data) {
+      failedImages += 1;
+      continue;
+    }
+    try {
+      const response = await fetch('/api/images/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: { ...row, id, fileName, mimeType },
+          dataUrl: `data:${mimeType};base64,${bytesToBase64(data)}`,
+        }),
+      });
+      if (response.ok) restoredImages += 1;
+      else failedImages += 1;
+    } catch (error) {
+      console.warn('Failed to restore site image', error);
+      failedImages += 1;
+    }
+  }
+
   restoreStorage(localStorage, manifest.localStorage || {});
   restoreStorage(sessionStorage, manifest.sessionStorage || {});
   return {
@@ -313,5 +408,6 @@ export async function restoreBackup(file: File): Promise<RestoreResult> {
       notesOpen: false,
     },
     counts,
+    images: { restored: restoredImages, failed: failedImages },
   };
 }

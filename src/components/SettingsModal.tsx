@@ -1108,7 +1108,7 @@ export function SettingsModal({
             </div>
             <p className="settings-backup-warning">
               <ShieldAlert size={13} />
-              备份文件包含论文 PDF、对话、笔记、标注和 API Key，请像密码一样妥善保存。
+              备份文件包含论文 PDF、对话、笔记、标注、站点图片和 API Key，请像密码一样妥善保存。
             </p>
           </section>
 
